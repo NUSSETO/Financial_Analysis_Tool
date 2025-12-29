@@ -274,7 +274,6 @@ elif page == "Portfolio Optimizer":
     st.header("Modern Portfolio Theory (Efficient Frontier)")
     
     # --- Sidebar Settings ---  
-    st.sidebar.markdown("---")
     st.sidebar.header("Optimization Settings")
     num_portfolios = st.sidebar.slider("Number of Simulations", 
                                        1000, 10000, 5000,
