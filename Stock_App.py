@@ -232,6 +232,8 @@ if page == "Stock Price Forecaster":
             st.caption(f"{saved_name}") # Small font for full name
         
         with col_header2:
+            st.write("") 
+            st.write("") 
             st.metric(label = "Current Price", 
                       value = f"${last_price:.2f}", 
                       delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
