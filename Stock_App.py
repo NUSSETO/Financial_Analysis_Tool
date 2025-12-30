@@ -43,6 +43,22 @@ st.markdown("---")
 @st.cache_data(ttl = 3600)
 
 def get_stock_data(tickers, period):
+    
+    """
+    Fetches historical stock data from Yahoo Finance for a single ticker or a list of tickers.
+
+    This function handles both single-ticker requests (returning a standard DataFrame) 
+    and multi-ticker batch requests (returning a multi-index DataFrame) to support both the Forecaster and Optimizer modules.
+
+    Args:
+        tickers (str or list[str]): A single ticker symbol (e.g., "AAPL") or a list of symbols (e.g., ["AAPL", "GOOG"]).
+        period (str): The historical period to download (e.g., "1y", "3y", "max").
+
+    Returns:
+        pd.DataFrame or None: A pandas DataFrame containing historical stock data (Open, High, Low, Close, Volume) if successful; 
+                              None if an API error occurs.
+    """
+    
     try:
         if isinstance(tickers, list):
             # Batch download for Portfolio Optimizer
