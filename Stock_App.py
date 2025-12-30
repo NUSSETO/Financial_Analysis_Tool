@@ -563,9 +563,9 @@ elif page == "Portfolio Optimizer":
                     \text{Sharpe} = \frac{R_p - R_f}{\sigma_p}
                     $$
                     - $R_p$: Portfolio Return
-                    - $R_f$: Risk-Free Rate (currently **{rate:.1f}%**)
+                    - $R_f$: Risk-Free Rate
                     - $\sigma_p$: Portfolio Risk (Volatility)
-                    """.format(rate = saved_rf*100))
+                    """)
 
         # --- Correlation Analysis & Warning System ---
                 
