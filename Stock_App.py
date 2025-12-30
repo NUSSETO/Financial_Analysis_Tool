@@ -124,18 +124,38 @@ if page == "Stock Price Forecaster":
                 st.error(f"Ticker '{ticker}' not found or API unavailable.")
                 
             else:
+
+                # Try to fetch full name 
+                try:
+                    stock_info = yf.Ticker(ticker).info
+                    stock_name = stock_info.get('longName', ticker)
+                except:
+                    stock_name = ticker # Fallback if API fails
+
                 # Data Preprocessing
-                if 'Close' not in stock_data.columns:
+                if 'Adj Close' in stock_data.columns:
+                    closing_prices = stock_data['Adj Close']
+                elif 'Close' in stock_data.columns:
+                    closing_prices = stock_data['Close']
+                else:
                     st.error(f"Data Error: Closing price is missing for {ticker}.")
                     st.stop()
 
-                closing_prices = stock_data['Close']
+                last_price = float(closing_prices.iloc[-1]) 
+
+                # Calculate Daily Change (Previous Close vs Current)
+                if len(closing_prices) >= 2:
+                    prev_price = float(closing_prices.iloc[-2])
+                    price_change = last_price - prev_price
+                    pct_change = (price_change / prev_price) * 100
+                else:
+                    price_change = 0.0
+                    pct_change = 0.0
 
                 # Calculate Log Returns for Geometric Brownian Motion parameters
                 log_returns = np.log(closing_prices / closing_prices.shift(1)).dropna()
                 mu = log_returns.mean()
                 sigma = log_returns.std()
-                last_price = float(closing_prices.iloc[-1]) 
                 
                 # --- Vectorized Monte Carlo Simulation (GBM) ---
                 # 1. Pre-compute random shocks (Brownian Motion component)
@@ -173,6 +193,9 @@ if page == "Stock Price Forecaster":
                 # --- SAVE TO SESSION STATE ---
                 st.session_state['forecast_results'] = {'simulation_df': simulation_df,
                                                         'last_price': last_price,
+                                                        'stock_name': stock_name,      
+                                                        'price_change': price_change,  
+                                                        'pct_change': pct_change,    
                                                         'expected_price': expected_price,
                                                         'median_price': median_price,
                                                         'worst_case': worst_case,
@@ -188,6 +211,9 @@ if page == "Stock Price Forecaster":
         res = st.session_state['forecast_results']
         simulation_df = res['simulation_df']
         last_price = res['last_price']
+        saved_name = res['stock_name']
+        saved_change = res['price_change']
+        saved_pct = res['pct_change']
         expected_price = res['expected_price']
         median_price = res['median_price']
         worst_case = res['worst_case']
@@ -198,8 +224,17 @@ if page == "Stock Price Forecaster":
         saved_sims = res['simulations']
     
         # --- Output Visualization ---
-        st.success(f"Simulation complete! Reference Price: ${last_price:.2f}")
-        st.subheader(f"Projected Paths for {saved_ticker}")
+        st.write("") # Spacing
+        col_header1, col_header2 = st.columns([3, 1]) # Left gets more space
+
+        with col_header1:
+            st.markdown(f"<h1 style='margin-bottom:0px;'>{saved_ticker}</h1>", unsafe_allow_html = True)
+            st.caption(f"{saved_name}") # Small font for full name
+        
+        with col_header2:
+            st.metric(label = "Current Price", 
+                      value = f"${last_price:.2f}", 
+                      delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
 
         # Initiate the figure
         fig = go.Figure()
@@ -486,7 +521,6 @@ elif page == "Portfolio Optimizer":
         saved_rf = data_store['rf_rate']
                 
         # --- Visualization ---
-        st.subheader("Efficient Frontier")
         fig = go.Figure()
                     
         # Scatter plot of random portfolios
@@ -555,7 +589,7 @@ elif page == "Portfolio Optimizer":
                     We use the **Markowitz Mean-Variance Optimization** method.
                             
                     **The Logic:**
-                    We simulate thousands of random combinations to find the "Efficient Frontier" — the curve where you get the **maximum possible return** for a given level of risk.
+                    We simulate thousands of random combinations to find the "Efficient Frontier", the curve where you get the **maximum possible return** for a given level of risk.
                             
                     **The Goal:**
                     Maximize the **Sharpe Ratio**:
@@ -617,7 +651,7 @@ elif page == "Portfolio Optimizer":
                 st.markdown(f"- **{ticker1}** & **{ticker2}**: {score:.2f} ({relation})")
 
         # --- Final Allocation Output ---
-        st.subheader("🏆 Optimal Asset Allocation")
+        st.subheader("Optimal Asset Allocation")
                     
         allocation_df = pd.DataFrame({"Ticker": cols, "Weight": opt_weights})
         allocation_df = allocation_df.sort_values(by = "Weight", ascending = False)
