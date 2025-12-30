@@ -315,13 +315,25 @@ if page == "Stock Price Forecaster":
 # ==========================================
 
 elif page == "Portfolio Optimizer":
-    st.header("Modern Portfolio Theory (Efficient Frontier)")
+    st.header("Efficient Frontier (Modern Portfolio Theory)")
     
     # --- Sidebar Settings ---  
     st.sidebar.header("Optimization Settings")
+    
     num_portfolios = st.sidebar.slider("Number of Simulations", 
                                        1000, 10000, 5000,
                                        help = "Higher simulations produce a more accurate Efficient Frontier.")
+
+    # Risk-Free Rate Input
+    risk_free_rate_input = st.sidebar.number_input("Risk-Free Rate (%)",
+                                                   value = 3.0,
+                                                   min_value = 0.0,
+                                                   max_value = 10.0,
+                                                   step = 0.1,
+                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill).")
+    
+    # Convert to decimal
+    risk_free_rate = risk_free_rate_input / 100
 
     seed = st.sidebar.number_input("Random Seed", 
                                    value = 42, 
@@ -414,9 +426,9 @@ elif page == "Portfolio Optimizer":
                     std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
                     return returns, std
 
-                def neg_sharpe(weights, mean_returns, cov_matrix, risk_free_rate = 0.02):
+                def neg_sharpe(weights, mean_returns, cov_matrix, rf_rate):
                     p_ret, p_std = portfolio_performance(weights, mean_returns, cov_matrix)
-                    return - (p_ret - risk_free_rate) / p_std
+                    return - (p_ret - rf_rate) / p_std
 
                 # SLSQP Optimization for Max Sharpe Ratio
                 num_assets = len(data.columns)
@@ -424,7 +436,12 @@ elif page == "Portfolio Optimizer":
                 bounds = tuple((0, 1) for _ in range(num_assets)) 
                 init_guess = num_assets * [1. / num_assets]
                 
-                opt_results = sco.minimize(neg_sharpe, init_guess, args=(mean_returns, cov_matrix), method = 'SLSQP', bounds = bounds, constraints = constraints)
+                opt_results = sco.minimize(neg_sharpe, init_guess, 
+                                           args = (mean_returns, cov_matrix, risk_free_rate), 
+                                           method = 'SLSQP', 
+                                           bounds = bounds, 
+                                           constraints = constraints)
+                
                 opt_weights = opt_results.x
                 opt_ret, opt_std = portfolio_performance(opt_weights, mean_returns, cov_matrix)
                     
@@ -442,7 +459,6 @@ elif page == "Portfolio Optimizer":
                 sim_stds = np.sqrt(sim_variances)
 
                 # 4. Compute Sharpe Ratios
-                risk_free_rate = 0.02
                 sim_sharpes = (sim_returns - risk_free_rate) / sim_stds
 
                 # Stack results: [Returns, Volatility, Sharpe]
@@ -454,7 +470,8 @@ elif page == "Portfolio Optimizer":
                                                    'opt_ret': opt_ret,
                                                    'opt_weights': opt_weights,
                                                    'tickers': data.columns,
-                                                   'returns': returns}
+                                                   'returns': returns,
+                                                   'rf_rate': risk_free_rate}
 
     if 'mpt_results' in st.session_state:
         
@@ -466,6 +483,7 @@ elif page == "Portfolio Optimizer":
         opt_weights = data_store['opt_weights']
         cols = data_store['tickers']
         returns = data_store['returns']
+        saved_rf = data_store['rf_rate']
                 
         # --- Visualization ---
         st.subheader("Efficient Frontier")
@@ -493,7 +511,7 @@ elif page == "Portfolio Optimizer":
                                                            width = 1)),
                                  name='Max Sharpe (Optimal)'))
 
-        fig.update_layout(title = "Risk vs. Return Analysis",
+        fig.update_layout(title = f"Risk vs. Return Analysis (Risk-Free Rate: {saved_rf*100:.1f}%)",
                           xaxis_title = "Volatility (Annualized Std Dev)",
                           yaxis_title = "Expected Annual Return",
                           template = "plotly_dark",
@@ -545,9 +563,9 @@ elif page == "Portfolio Optimizer":
                     \text{Sharpe} = \frac{R_p - R_f}{\sigma_p}
                     $$
                     - $R_p$: Portfolio Return
-                    - $R_f$: Risk-Free Rate (e.g., 2%)
+                    - $R_f$: Risk-Free Rate (currently **{rate:.1f}%**)
                     - $\sigma_p$: Portfolio Risk (Volatility)
-                    """)
+                    """.format(rate = saved_rf*100))
 
         # --- Correlation Analysis & Warning System ---
                 
