@@ -233,10 +233,11 @@ if page == "Stock Price Forecaster":
         
         with col_header2:
             st.write("") 
-            st.write("") 
             st.metric(label = "Current Price", 
                       value = f"${last_price:.2f}", 
                       delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
+            
+        st.markdown("---")
 
         # Initiate the figure
         fig = go.Figure()
