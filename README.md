@@ -1,8 +1,8 @@
-# 📊 Financial Analysis & Optimization Tool
+# Financial Analysis & Optimization Tool
 
 A comprehensive, production-ready Streamlit application for financial analysis, portfolio optimization, and risk assessment. Built with modern quantitative finance techniques including Monte Carlo simulation and Modern Portfolio Theory.
 
-## 🎯 Overview
+## Overview
 
 This application provides three powerful tools for investors and financial analysts:
 
@@ -12,9 +12,9 @@ This application provides three powerful tools for investors and financial analy
 
 All tools feature interactive visualizations, real-time data from Yahoo Finance, and comprehensive risk analysis.
 
-## ✨ Key Features
+## Key Features
 
-### 📈 Stock Price Forecaster
+### Stock Price Forecaster
 - **Monte Carlo Simulation** using Geometric Brownian Motion (GBM)
 - Configurable time horizons (5-365 trading days)
 - Risk metrics including:
@@ -24,7 +24,7 @@ All tools feature interactive visualizations, real-time data from Yahoo Finance,
 - Interactive visualization of simulation paths
 - Memory-optimized (stores only visualization subset)
 
-### ⚖️ Portfolio Optimizer
+### Portfolio Optimizer
 - **Modern Portfolio Theory (MPT)** implementation
 - Efficient Frontier construction
 - Sharpe Ratio maximization using convex optimization
@@ -32,14 +32,14 @@ All tools feature interactive visualizations, real-time data from Yahoo Finance,
 - High correlation warnings for diversification
 - Optimal asset allocation recommendations
 
-### 🔄 Portfolio Rebalancer
+### Portfolio Rebalancer
 - Calculate required trades to reach target allocations
 - Handles integer share constraints
 - Real-time price fetching
 - Cash balance management
 - Portfolio value calculations
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Core Technologies
 - **Python 3.8+** - Programming language
@@ -56,7 +56,7 @@ All tools feature interactive visualizations, real-time data from Yahoo Finance,
 - `scipy.optimize` - Portfolio optimization algorithms
 - `numpy.random` - Monte Carlo simulation random number generation
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 - Python 3.8 or higher
@@ -84,42 +84,42 @@ All tools feature interactive visualizations, real-time data from Yahoo Finance,
    - The app will automatically open in your default web browser
    - Default URL: `http://localhost:8501`
 
-## 🚀 Usage
+## Usage
 
 ### Stock Price Forecaster
 
-1. Select **"📈 Stock Price Forecaster"** from the navigation
+1. Select **"Stock Price Forecaster"** from the navigation
 2. Enter a stock ticker symbol (e.g., AAPL, GOOGL, VOO)
 3. Adjust simulation parameters in the sidebar:
    - Time Horizon: Number of trading days to forecast
    - Number of Simulations: More = more accurate but slower
    - Random Seed: For reproducible results
-4. Click **"🚀 Start Simulation"**
+4. Click **"Start Simulation"**
 5. Review the forecast chart and risk analysis metrics
 
 ### Portfolio Optimizer
 
-1. Select **"⚖️ Portfolio Optimizer"** from the navigation
+1. Select **"Portfolio Optimizer"** from the navigation
 2. Enter multiple tickers separated by commas (e.g., VTI, VEA, VNQ)
 3. Configure optimization settings:
    - Number of Simulations: Portfolio combinations to test
    - Risk-Free Rate: Current risk-free rate (e.g., 3-5%)
-4. Click **"🚀 Optimize"**
+4. Click **"Optimize"**
 5. Review the Efficient Frontier chart and optimal allocation
 
 ### Portfolio Rebalancer
 
-1. Select **"🔄 Portfolio Rebalancer"** from the navigation
+1. Select **"Portfolio Rebalancer"** from the navigation
 2. Enter your current cash balance
 3. Add your holdings:
    - Ticker symbol
    - Current number of shares
    - Target allocation percentage
 4. Ensure target percentages sum to 100%
-5. Click **"🚀 Calculate Rebalancing"**
+5. Click **"Calculate Rebalancing"**
 6. Review the required trades and portfolio summary
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Financial_Analysis_Tool/
@@ -130,7 +130,7 @@ Financial_Analysis_Tool/
 └── .gitignore               # Git ignore file (if present)
 ```
 
-## 🔧 Configuration
+## Configuration
 
 All configuration constants are defined at the top of `Stock_App.py` for easy customization:
 
@@ -141,7 +141,7 @@ All configuration constants are defined at the top of `Stock_App.py` for easy cu
 
 See the code comments for detailed explanations of each constant.
 
-## 📊 Data Source
+## Data Source
 
 This application uses **Yahoo Finance** via the `yfinance` library for:
 - Historical stock price data
@@ -150,17 +150,15 @@ This application uses **Yahoo Finance** via the `yfinance` library for:
 
 **Note**: Data availability depends on Yahoo Finance API. The application includes error handling for API failures.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This application is for **educational and informational purposes only**. The information presented does not constitute financial advice or recommendation to buy or sell any securities. All models are based on historical data and statistical assumptions, which do not guarantee future performance.
 
 **Important**: Past performance does not guarantee future results. Always consult with a qualified financial advisor before making investment decisions.
 
-## 🤝 Credits & Acknowledgments
+## Credits & Acknowledgments
 
-### Development
-- **Author**: Jason Huang
-- **Year**: 2025
+**Built with Python, Streamlit, and AI assistance from Gemini & Cursor**
 
 ### AI Assistance
 This project was developed with the assistance of AI tools:
@@ -179,17 +177,17 @@ The AI tools were instrumental in:
 - **Plotly** - Visualization library
 - **Open Source Community** - All Python libraries used
 
-## 📝 License
+## License
 
 This project is provided as-is for educational purposes. Please refer to individual library licenses for dependencies.
 
-## 🔗 Additional Resources
+## Additional Resources
 
 - **Deployment Guide**: See `DEPLOYMENT_CHECKLIST.md` for detailed deployment and maintenance instructions
 - **Streamlit Documentation**: https://docs.streamlit.io/
 - **Yahoo Finance**: https://finance.yahoo.com/
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -205,7 +203,7 @@ This project is provided as-is for educational purposes. Please refer to individ
 - **Solution**: Reduce the number of simulations in the sidebar settings
 - **Tip**: 200-500 simulations provide a good balance of speed and accuracy
 
-## 📈 Future Enhancements
+## Future Enhancements
 
 Potential improvements for future versions:
 - Additional risk metrics (Sortino Ratio, Maximum Drawdown)
@@ -215,10 +213,10 @@ Potential improvements for future versions:
 - Multi-currency support
 - Custom date range selection
 
-## 📧 Contact
-
-For questions, suggestions, or contributions, please open an issue in the repository.
-
 ---
 
-**Built with ❤️ using Python, Streamlit, and AI assistance from Gemini & Cursor**
+## About me
+
+Jason Huang  
+MSc in Data Science for Sustainability, NUS
+
