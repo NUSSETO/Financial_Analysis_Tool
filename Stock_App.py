@@ -346,57 +346,57 @@ if page == "📈 Stock Price Forecaster":
                     expected_price = float(np.mean(end_prices))
                     median_price = float(np.median(end_prices))
                     
-                # For worst case, we use VaR at specified confidence level              
-                worst_case = float(np.percentile(end_prices, VAR_CONFIDENCE_LEVEL * 100))
+                    # For worst case, we use VaR at specified confidence level              
+                    worst_case = float(np.percentile(end_prices, VAR_CONFIDENCE_LEVEL * 100))
 
-                # CVaR / Expected Shortfall (average of worst 5%)
-                tail = end_prices[end_prices <= worst_case]
-                cvar_95 = float(np.mean(tail)) if len(tail) > 0 else worst_case  # fallback safeguard
-                
-                # Probability of Loss
-                prob_loss = float(np.mean(end_prices < last_price))  # 0~1
-                
-                # Optimization: Only create DataFrame for visualization subset
-                # This reduces memory usage by ~95% when running 1000 simulations
-                columns_to_store = min(simulations, MAX_LINES_TO_PLOT)
-                
-                # Find the worst scenario index to ensure it's included in the plot
-                worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
-                
-                # Select columns to store: first N columns + worst scenario if not already included
-                columns_indices = list(range(columns_to_store))
-                if worst_scenario_idx not in columns_indices and worst_scenario_idx < simulations:
-                    # Replace last column with worst scenario if it's not in the first N
-                    columns_indices[-1] = worst_scenario_idx
-                
-                # Compute mean path from full array for accurate visualization
-                mean_path_full = np.mean(price_paths, axis=1)
-                
-                # Create DataFrame with only the subset needed for visualization + mean path
-                subset_data = np.column_stack([price_paths[:, columns_indices], mean_path_full])
-                subset_columns = [f"Sim_{i}" for i in columns_indices] + ['Mean']
-                simulation_df = pd.DataFrame(subset_data, 
-                                            columns = subset_columns,
-                                            index = range(len(price_paths)))
+                    # CVaR / Expected Shortfall (average of worst 5%)
+                    tail = end_prices[end_prices <= worst_case]
+                    cvar_95 = float(np.mean(tail)) if len(tail) > 0 else worst_case  # fallback safeguard
+                    
+                    # Probability of Loss
+                    prob_loss = float(np.mean(end_prices < last_price))  # 0~1
+                    
+                    # Optimization: Only create DataFrame for visualization subset
+                    # This reduces memory usage by ~95% when running 1000 simulations
+                    columns_to_store = min(simulations, MAX_LINES_TO_PLOT)
+                    
+                    # Find the worst scenario index to ensure it's included in the plot
+                    worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
+                    
+                    # Select columns to store: first N columns + worst scenario if not already included
+                    columns_indices = list(range(columns_to_store))
+                    if worst_scenario_idx not in columns_indices and worst_scenario_idx < simulations:
+                        # Replace last column with worst scenario if it's not in the first N
+                        columns_indices[-1] = worst_scenario_idx
+                    
+                    # Compute mean path from full array for accurate visualization
+                    mean_path_full = np.mean(price_paths, axis=1)
+                    
+                    # Create DataFrame with only the subset needed for visualization + mean path
+                    subset_data = np.column_stack([price_paths[:, columns_indices], mean_path_full])
+                    subset_columns = [f"Sim_{i}" for i in columns_indices] + ['Mean']
+                    simulation_df = pd.DataFrame(subset_data, 
+                                                columns = subset_columns,
+                                                index = range(len(price_paths)))
 
-                # --- SAVE TO SESSION STATE ---
-                st.session_state['forecast_results'] = {'simulation_df': simulation_df,
-                                                        'last_price': last_price,
-                                                        'stock_name': stock_name,      
-                                                        'price_change': price_change,  
-                                                        'pct_change': pct_change,    
-                                                        'expected_price': expected_price,
-                                                        'median_price': median_price,
-                                                        'worst_case': worst_case,
-                                                        'cvar_95': cvar_95,
-                                                        'prob_loss': prob_loss,
-                                                        'ticker': ticker,
-                                                        'time_horizon': time_horizon, 
-                                                        'simulations': simulations}
-                
-                # Success message
-                st.success(f"✅ **Simulation completed successfully!** Analyzed {simulations} scenarios for {ticker} over {time_horizon} trading days.")
-                st.balloons()  # Celebration effect
+                    # --- SAVE TO SESSION STATE ---
+                    st.session_state['forecast_results'] = {'simulation_df': simulation_df,
+                                                            'last_price': last_price,
+                                                            'stock_name': stock_name,      
+                                                            'price_change': price_change,  
+                                                            'pct_change': pct_change,    
+                                                            'expected_price': expected_price,
+                                                            'median_price': median_price,
+                                                            'worst_case': worst_case,
+                                                            'cvar_95': cvar_95,
+                                                            'prob_loss': prob_loss,
+                                                            'ticker': ticker,
+                                                            'time_horizon': time_horizon, 
+                                                            'simulations': simulations}
+                    
+                    # Success message
+                    st.success(f"✅ **Simulation completed successfully!** Analyzed {simulations} scenarios for {ticker} over {time_horizon} trading days.")
+                    st.balloons()  # Celebration effect
 
     if 'forecast_results' in st.session_state:
         
@@ -787,7 +787,7 @@ elif page == "⚖️ Portfolio Optimizer":
             template = "plotly_white",
             height = 600,
             legend = dict(yanchor = "top", y = 0.99,
-                        xanchor = "left", x = 0.01,
+                        xanchor = "right", x = 0.99,
                         bgcolor = "rgba(255,255,255,0.8)",
                         bordercolor = "gray",
                         borderwidth = 1))
@@ -907,13 +907,15 @@ elif page == "⚖️ Portfolio Optimizer":
         allocation_df = allocation_df.sort_values(by = "Weight", ascending = False)
         allocation_df['Weight'] = allocation_df['Weight'].apply(lambda x: f"{x*100:.2f}%")
         
+        # Get ticker with highest weight BEFORE setting index
+        max_weight_ticker = allocation_df.iloc[0]['Ticker']
+        max_weight = float(allocation_df.iloc[0]['Weight'].replace('%', ''))
+        
         # Add visual bars for weights
         st.markdown("**Allocation Breakdown:**")
         st.dataframe(allocation_df.set_index('Ticker'), use_container_width=True)
         
         # Interpretation
-        max_weight_ticker = allocation_df.index[0]
-        max_weight = float(allocation_df.iloc[0]['Weight'].replace('%', ''))
         if max_weight > 50:
             st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({allocation_df.iloc[0]['Weight']}). Consider if this matches your risk tolerance.")
 
@@ -965,6 +967,26 @@ elif page == "🔄 Portfolio Rebalancer":
             }
             st.session_state['rebalance_data'] = pd.DataFrame(default_data)
 
+        # Add CSS to center-align table content in Module 3
+        st.markdown("""
+        <style>
+        div[data-testid="stDataFrame"] table {
+            text-align: center !important;
+        }
+        div[data-testid="stDataFrame"] th,
+        div[data-testid="stDataFrame"] td {
+            text-align: center !important;
+        }
+        div[data-testid="stDataEditor"] table {
+            text-align: center !important;
+        }
+        div[data-testid="stDataEditor"] th,
+        div[data-testid="stDataEditor"] td {
+            text-align: center !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         # Data Editor (Excel-like input)
         input_df = st.data_editor(st.session_state['rebalance_data'], 
                                   num_rows = "dynamic", 
@@ -973,7 +995,8 @@ elif page == "🔄 Portfolio Rebalancer":
                                       "Ticker": st.column_config.TextColumn("Ticker", required = True),
                                       "Shares": st.column_config.NumberColumn("Shares", min_value = 0, step = 1, format = "%d"),
                                       "Target (%)": st.column_config.NumberColumn("Target %", min_value = 0, max_value = 100, step = 0.1, format = "%.1f%%")
-                                  })
+                                  },
+                                  hide_index = True)
         
         # Save changes to session state to prevent data loss on rerun
         st.session_state['rebalance_data'] = input_df
@@ -1105,12 +1128,11 @@ elif page == "🔄 Portfolio Rebalancer":
                                     display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
                                     display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
 
-                                    # Success message
-                                    st.success("✅ **Rebalancing plan calculated successfully!**")
-                                    
-                                    # Show Main Table
-                                    st.markdown("**📋 Required Trades:**")
+                                    # Show Main Table (centered)
                                     st.dataframe(display_df, hide_index = True, use_container_width = True)
+                                    
+                                    # Success message (moved below table)
+                                    st.success("✅ **Rebalancing plan calculated successfully!**")
 
                                     # Show Cash Summary
                                     # The remaining cash after buying integer shares
@@ -1150,8 +1172,7 @@ elif page == "🔄 Portfolio Rebalancer":
                 
                 st.info("💾 **Displaying previously calculated rebalancing plan.** Click Calculate Rebalancing to recalculate with current data.")
                 
-                # Show Main Table
-                st.markdown("**📋 Required Trades:**")
+                # Show Main Table (centered)
                 st.dataframe(display_df, hide_index = True, use_container_width = True)
 
                 # Show Cash Summary (with validation)
