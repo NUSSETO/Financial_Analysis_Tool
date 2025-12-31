@@ -423,9 +423,9 @@ if page == "📈 Stock Price Forecaster":
         with col_header1:
             st.markdown(f"<h1 style='margin-bottom:0px;'>{saved_ticker}</h1>", unsafe_allow_html = True)
             st.caption(f"{saved_name}") # Small font for full name
+            st.write("")  # Add spacing to align with price metric
         
         with col_header2:
-            st.write("") 
             st.metric(label = "Current Price", 
                       value = f"${last_price:.2f}", 
                       delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
@@ -460,10 +460,11 @@ if page == "📈 Stock Price Forecaster":
                                      opacity = 1.0,
                                      hovertemplate = 'Day %{x}<br>Price: $%{y:.2f}<extra></extra>'))
         
-        # Add current price reference line
+        # Add current price reference line (add to legend)
         fig.add_hline(y=last_price, line_dash="dash", line_color="green", 
                      annotation_text=f"Current Price: ${last_price:.2f}",
-                     annotation_position="right")
+                     annotation_position="right",
+                     name="Current Price")
                 
         # Layout setting with better styling
         fig.update_layout(
@@ -495,6 +496,7 @@ if page == "📈 Stock Price Forecaster":
                 """
                 This chart shows possible future price paths based on historical volatility.
                 - **Red Line**: The average expected price trend.
+                - **Green Dashed Line**: The current price reference line for comparison.
                 - **Faint Lines**: Individual simulated trajectories representing possible market scenarios.
                 - **Dispersion**: A wider spread of lines indicates higher historical volatility and greater uncertainty.
                 """)
@@ -546,31 +548,30 @@ if page == "📈 Stock Price Forecaster":
         col3.metric("⚠️ Value at Risk (95% Confidence)",
                     f"${worst_case:.2f}", 
                     f"{worst_pct:+.2f}%",
-                    delta_color = "inverse",
+                    delta_color = "inverse" if worst_pct < 0 else "normal",
                     help = "5th Percentile outcome. Indicates a 95% probability that price remains above this level.")
                 
         col4.metric("🔻 CVaR / Expected Shortfall (95%)",
                     f"${cvar_95:.2f}",
                     f"{cvar_pct:+.2f}%",
-                    delta_color = "inverse",
+                    delta_color = "inverse" if cvar_pct < 0 else "normal",
                     help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
         
-        # Probability of Loss with visual indicator
+        # Risk indicator below CVaR
         prob_loss_pct = prob_loss*100
         loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
         
-        col5, col6 = st.columns([2, 1])
-        with col5:
-            st.metric(f"{loss_color} Probability of Loss",
-                      f"{prob_loss_pct:.1f}%",
-                      help = "Share of simulations where the terminal price finishes below the current price.")
-        with col6:
-            if prob_loss_pct < 30:
-                st.success("✅ Low risk of loss")
-            elif prob_loss_pct < 50:
-                st.warning("⚠️ Moderate risk of loss")
-            else:
-                st.error("🔴 High risk of loss")
+        if prob_loss_pct < 30:
+            st.success("✅ Low risk of loss")
+        elif prob_loss_pct < 50:
+            st.warning("⚠️ Moderate risk of loss")
+        else:
+            st.error("🔴 High risk of loss")
+        
+        # Probability of Loss metric
+        st.metric(f"{loss_color} Probability of Loss",
+                  f"{prob_loss_pct:.1f}%",
+                  help = "Share of simulations where the terminal price finishes below the current price.")
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
@@ -620,13 +621,11 @@ elif page == "⚖️ Portfolio Optimizer":
         tickers_input = st.text_area("Enter Stock Tickers (Comma Separated)", 
                                      value = "VTI, VEA, VNQ",
                                      placeholder="e.g., VTI, VEA, VNQ, BND",
-                                     help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).")
+                                     help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).",
+                                     height = 100)
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
-        
-        if len(tickers) > 0:
-            st.caption(f"📋 Detected {len(tickers)} unique ticker(s): {', '.join(tickers)}")
 
     with col_btn:
         st.write("") 
@@ -1129,6 +1128,7 @@ elif page == "🔄 Portfolio Rebalancer":
                                     display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
 
                                     # Show Main Table (centered)
+                                    st.markdown("**📋 Required Trades:**")
                                     st.dataframe(display_df, hide_index = True, use_container_width = True)
                                     
                                     # Success message (moved below table)
@@ -1170,10 +1170,12 @@ elif page == "🔄 Portfolio Rebalancer":
                 display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
                 display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
                 
-                st.info("💾 **Displaying previously calculated rebalancing plan.** Click Calculate Rebalancing to recalculate with current data.")
-                
                 # Show Main Table (centered)
+                st.markdown("**📋 Required Trades:**")
                 st.dataframe(display_df, hide_index = True, use_container_width = True)
+                
+                # Info message (moved below table)
+                st.info("💾 **Displaying previously calculated rebalancing plan.** Click Calculate Rebalancing to recalculate with current data.")
 
                 # Show Cash Summary (with validation)
                 if total_equity > 0:
