@@ -62,7 +62,7 @@ def get_stock_data(tickers, period):
         
         # Use yf.download() for both single and multiple tickers (more efficient and consistent)
         # This returns MultiIndex columns for both single and multiple tickers
-        data = yf.download(ticker_list, period=period, ignore_tz=True, progress=False, show_errors=False)
+        data = yf.download(ticker_list, period=period, ignore_tz=True, progress=False)
         
         # Handle empty or invalid data
         if data is None or data.empty:
