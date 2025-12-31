@@ -41,14 +41,12 @@ st.markdown("---")
 # ==========================================
 
 @st.cache_data(ttl = 3600)
-
 def get_stock_data(tickers, period):
-    
     """
     Fetches historical stock data from Yahoo Finance for a single ticker or a list of tickers.
-
-    This function handles both single-ticker requests (returning a standard DataFrame) 
-    and multi-ticker batch requests (returning a multi-index DataFrame) to support both the Forecaster and Optimizer modules.
+    
+    Optimized to use yf.download() consistently for both single and multiple tickers,
+    which is more efficient and returns consistent data structures.
 
     Args:
         tickers (str or list[str]): A single ticker symbol (e.g., "AAPL") or a list of symbols (e.g., ["AAPL", "GOOG"]).
@@ -58,20 +56,92 @@ def get_stock_data(tickers, period):
         pd.DataFrame or None: A pandas DataFrame containing historical stock data (Open, High, Low, Close, Volume) if successful; 
                               None if an API error occurs.
     """
-    
     try:
-        if isinstance(tickers, list):
-            # Batch download for Portfolio Optimizer
-            data = yf.download(tickers, period = period, ignore_tz = True)
-            return data
-        else:
-            # Single ticker fetch for Forecaster
-            stock = yf.Ticker(tickers)
-            return stock.history(period = period)
+        # Standardize to list for consistent processing
+        ticker_list = [tickers] if isinstance(tickers, str) else tickers
+        
+        # Use yf.download() for both single and multiple tickers (more efficient and consistent)
+        # This returns MultiIndex columns for both single and multiple tickers
+        data = yf.download(ticker_list, period=period, ignore_tz=True, progress=False, show_errors=False)
+        
+        # Handle empty or invalid data
+        if data is None or data.empty:
+            return None
+        
+        # Return raw data - let extract_price_data() handle column extraction consistently
+        return data
             
     except Exception as e:
-        print(f"Yahoo Finance Error: {e}")
+        st.error(f"Error fetching stock data: {str(e)}")
         return None
+
+
+@st.cache_data(ttl = 3600)
+def get_stock_info(ticker):
+    """
+    Fetches stock information (company name, etc.) from Yahoo Finance.
+    
+    Cached to avoid redundant API calls when the same ticker is requested multiple times.
+
+    Args:
+        ticker (str): A single ticker symbol (e.g., "AAPL").
+
+    Returns:
+        dict or None: Stock information dictionary if successful; None if an API error occurs.
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        return info if info else None
+    except Exception as e:
+        # Silently fail - info is optional, not critical for functionality
+        return None
+
+
+def extract_price_data(raw_data, prefer_adj_close=True):
+    """
+    Extracts price data from raw Yahoo Finance data, handling both single and multi-ticker formats.
+    
+    Args:
+        raw_data (pd.DataFrame): Raw data from get_stock_data()
+        prefer_adj_close (bool): If True, prefer 'Adj Close' over 'Close'
+    
+    Returns:
+        pd.DataFrame: DataFrame with price data (one column per ticker)
+    """
+    if raw_data is None or raw_data.empty:
+        return None
+    
+    # Handle MultiIndex columns (from batch downloads)
+    if isinstance(raw_data.columns, pd.MultiIndex):
+        # Extract price column (prefer Adj Close)
+        price_col = 'Adj Close' if prefer_adj_close else 'Close'
+        if price_col in raw_data.columns.get_level_values(0):
+            data = raw_data[price_col]
+            # Flatten column names to just ticker symbols
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(1)
+        else:
+            # Fallback to 'Close' if 'Adj Close' not available
+            price_col = 'Close'
+            if price_col in raw_data.columns.get_level_values(0):
+                data = raw_data[price_col]
+                if isinstance(data.columns, pd.MultiIndex):
+                    data.columns = data.columns.get_level_values(1)
+            else:
+                return None
+    else:
+        # Single ticker or already flattened
+        price_col = 'Adj Close' if (prefer_adj_close and 'Adj Close' in raw_data.columns) else 'Close'
+        if price_col in raw_data.columns:
+            data = raw_data[[price_col]]  # Keep as DataFrame
+        else:
+            return None
+    
+    # Drop columns that are entirely NaN (invalid tickers)
+    data = data.dropna(axis=1, how='all')
+    
+    return data if not data.empty else None
 
 # ==========================================
 # MODULE 1: STOCK PRICE FORECASTER
@@ -125,21 +195,19 @@ if page == "Stock Price Forecaster":
                 
             else:
 
-                # Try to fetch full name 
-                try:
-                    stock_info = yf.Ticker(ticker).info
-                    stock_name = stock_info.get('longName', ticker)
-                except:
-                    stock_name = ticker # Fallback if API fails
+                # Fetch full name using cached function
+                stock_info = get_stock_info(ticker)
+                stock_name = stock_info.get('longName', ticker) if stock_info else ticker
 
-                # Data Preprocessing
-                if 'Adj Close' in stock_data.columns:
-                    closing_prices = stock_data['Adj Close']
-                elif 'Close' in stock_data.columns:
-                    closing_prices = stock_data['Close']
-                else:
+                # Data Preprocessing using helper function
+                price_data = extract_price_data(stock_data, prefer_adj_close=True)
+                
+                if price_data is None or price_data.empty:
                     st.error(f"Data Error: Closing price is missing for {ticker}.")
                     st.stop()
+                
+                # Extract as Series for single ticker
+                closing_prices = price_data.iloc[:, 0]  # Get first (and only) column as Series
 
                 last_price = float(closing_prices.iloc[-1]) 
 
@@ -170,25 +238,47 @@ if page == "Stock Price Forecaster":
                 # Initialize starting point with 1s to apply last_price scaling later
                 price_paths = np.vstack([np.ones((1, simulations)), daily_returns])
                 price_paths = last_price * price_paths.cumprod(axis = 0)
-            
-                simulation_df = pd.DataFrame(price_paths, columns = [f"Sim_{i}" for i in range(simulations)])
 
-                # Compute Key Metrics
-                end_prices = simulation_df.iloc[-1]
+                # Compute Key Metrics directly from numpy array (memory efficient)
+                end_prices = price_paths[-1, :]  # Last row contains all terminal prices
 
                 # Center tendency
-                expected_price = end_prices.mean()
-                median_price = end_prices.median()
+                expected_price = float(np.mean(end_prices))
+                median_price = float(np.median(end_prices))
                 
                 # For worst case, we use a 95% CI              
-                worst_case = float(end_prices.quantile(0.05, interpolation = "linear")) 
+                worst_case = float(np.percentile(end_prices, 5))
 
                 # CVaR / Expected Shortfall (average of worst 5%)
                 tail = end_prices[end_prices <= worst_case]
-                cvar_95 = float(tail.mean()) if len(tail) > 0 else worst_case  # fallback safeguard
+                cvar_95 = float(np.mean(tail)) if len(tail) > 0 else worst_case  # fallback safeguard
                 
                 # Probability of Loss
-                prob_loss = float((end_prices < last_price).mean())  # 0~1
+                prob_loss = float(np.mean(end_prices < last_price))  # 0~1
+                
+                # Optimization: Only create DataFrame for visualization subset (max 50 columns)
+                # This reduces memory usage by ~95% when running 1000 simulations
+                max_lines_to_plot = 50
+                columns_to_store = min(simulations, max_lines_to_plot)
+                
+                # Find the worst scenario index to ensure it's included in the plot
+                worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
+                
+                # Select columns to store: first N columns + worst scenario if not already included
+                columns_indices = list(range(columns_to_store))
+                if worst_scenario_idx not in columns_indices and worst_scenario_idx < simulations:
+                    # Replace last column with worst scenario if it's not in the first N
+                    columns_indices[-1] = worst_scenario_idx
+                
+                # Compute mean path from full array for accurate visualization
+                mean_path_full = np.mean(price_paths, axis=1)
+                
+                # Create DataFrame with only the subset needed for visualization + mean path
+                subset_data = np.column_stack([price_paths[:, columns_indices], mean_path_full])
+                subset_columns = [f"Sim_{i}" for i in columns_indices] + ['Mean']
+                simulation_df = pd.DataFrame(subset_data, 
+                                            columns = subset_columns,
+                                            index = range(len(price_paths)))
 
                 # --- SAVE TO SESSION STATE ---
                 st.session_state['forecast_results'] = {'simulation_df': simulation_df,
@@ -242,19 +332,13 @@ if page == "Stock Price Forecaster":
         # Initiate the figure
         fig = go.Figure()
                 
-        # Performance Optimization: Limit rendered traces to prevent frontend lag
-        max_lines_to_plot = 50
-        columns_to_plot = list(simulation_df.columns[:min(saved_sims, max_lines_to_plot)])
-                
-        # Make sure the worst scenario is in the plot
-        end_prices_local = simulation_df.iloc[-1]
-        worst_col = (end_prices_local - worst_case).abs().idxmin()
-                
-        if worst_col not in columns_to_plot:
-            columns_to_plot.append(worst_col)
+        # All columns in simulation_df are already optimized subset (max 50)
+        # The worst scenario is already included during DataFrame creation
+        columns_to_plot = list(simulation_df.columns)
 
-        # Drawing the plot
-        for col in columns_to_plot:
+        # Drawing the plot (exclude 'Mean' column from individual traces)
+        sim_columns = [col for col in columns_to_plot if col != 'Mean']
+        for col in sim_columns:
             fig.add_trace(go.Scatter(x = simulation_df.index,
                                      y = simulation_df[col],
                                      mode = 'lines', 
@@ -263,14 +347,14 @@ if page == "Stock Price Forecaster":
                                      showlegend = False,
                                      hoverinfo = 'skip' ))
     
-        # Add Mean Expectation Line
-        mean_path = simulation_df.mean(axis = 1)
-        fig.add_trace(go.Scatter(x = simulation_df.index,
-                                 y = mean_path,
-                                 mode = 'lines',
-                                 name = 'Expected Average',
-                                 line = dict(color = 'red', width = 3),
-                                 opacity = 1.0))
+        # Add Mean Expectation Line (precomputed from full array)
+        if 'Mean' in simulation_df.columns:
+            fig.add_trace(go.Scatter(x = simulation_df.index,
+                                     y = simulation_df['Mean'],
+                                     mode = 'lines',
+                                     name = 'Expected Average',
+                                     line = dict(color = 'red', width = 3),
+                                     opacity = 1.0))
                 
         # Layout setting
         fig.update_layout(title = f"{saved_sims} Monte Carlo Simulations Scenarios",
@@ -419,33 +503,16 @@ elif page == "Portfolio Optimizer":
                 
             # --- 2. Data Cleaning & Selection ---
             try:
-                # Prefer 'Adj Close', fallback to 'Close'
-                if 'Adj Close' in raw_data.columns:
-                    data = raw_data['Adj Close']
-                        
-                elif 'Close' in raw_data.columns:
-                    data = raw_data['Close']
-                    
-                else:
-                    st.error("Data Error: Neither 'Adj Close' nor 'Close' price columns found in API response.")
+                # Use helper function to extract price data consistently
+                data = extract_price_data(raw_data, prefer_adj_close=True)
+                
+                if data is None:
+                    st.error("Data Error: Unable to extract price data from API response.")
                     st.stop()
-                    
-                # --- 3. Post-Fetch Validation ---         
-                # Drop columns that are entirely NaN (e.g., if a ticker is invalid but fetched)
-                data = data.dropna(axis = 1, how = 'all')
-
-                # Check if data is a Series (single stock) or DataFrame with < 2 columns
-                if isinstance(data, pd.Series) or (isinstance(data, pd.DataFrame) and data.shape[1] < 2):
+                
+                # Validation: Need at least 2 valid stocks for portfolio optimization
+                if data.shape[1] < 2:
                     st.error("Error: Insufficient valid data. At least 2 valid stocks are needed to calculate correlation.")
-                    st.stop()
-
-                # Clean up MultiIndex if present 
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(1)
-
-                # Final check for empty data after processing
-                if data.empty:
-                    st.error("Error: Processed data is empty.")
                     st.stop()
 
             except Exception as e:
@@ -739,25 +806,14 @@ elif page == "Portfolio Rebalancer":
                     
                     else:
                         try:
-                            # Handle Data Structure (Single vs Multi-Index)
-                            # We need a Series of Current Prices: {Ticker: Price}
-                            current_prices = {}
+                            # Use helper function to extract price data consistently
+                            price_data = extract_price_data(market_data, prefer_adj_close=True)
                             
-                            # Standardize column access (Prefer 'Adj Close', then 'Close')
-                            price_col = 'Adj Close' if 'Adj Close' in market_data.columns else 'Close'
-                            
-                            if len(tickers) == 1:
-                                # Single ticker returns a DataFrame with columns like [Open, Close...]
-                                # Get the last valid price
-                                last_valid_idx = market_data[price_col].last_valid_index()
-                                price = float(market_data.loc[last_valid_idx, price_col])
-                                current_prices[tickers[0]] = price
+                            if price_data is None or price_data.empty:
+                                st.error("Failed to extract price data. Please check your tickers.")
                             else:
-                                # Batch returns MultiIndex columns: (Price_Type, Ticker)
-                                # Extract just the price block
-                                df_prices = market_data[price_col]
-                                # Get last valid row
-                                last_prices = df_prices.iloc[-1]
+                                # Get last valid prices (handles both single and multiple tickers)
+                                last_prices = price_data.iloc[-1]
                                 current_prices = last_prices.to_dict()
 
                             # C. Core Math (Rebalancing)
