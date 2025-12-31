@@ -100,19 +100,52 @@ st.markdown("""
                 }
                 
                 /* Module 3: Center-align table content and align table heights */
-                div[data-testid="stDataFrame"] table {
+                div[data-testid="stDataFrame"] table,
+                div[data-testid="stDataFrame"] table tbody,
+                div[data-testid="stDataFrame"] table thead,
+                div[data-testid="stDataFrame"] table tr {
                     text-align: center !important;
                 }
                 div[data-testid="stDataFrame"] th,
                 div[data-testid="stDataFrame"] td {
                     text-align: center !important;
                 }
-                div[data-testid="stDataEditor"] table {
+                div[data-testid="stDataFrame"] th *,
+                div[data-testid="stDataFrame"] td *,
+                div[data-testid="stDataFrame"] th p,
+                div[data-testid="stDataFrame"] td p {
+                    text-align: center !important;
+                    margin: 0 auto !important;
+                }
+                div[data-testid="stDataFrame"] td > div {
+                    display: flex !important;
+                    justify-content: center !important;
+                    align-items: center !important;
+                }
+                div[data-testid="stDataEditor"] table,
+                div[data-testid="stDataEditor"] table tbody,
+                div[data-testid="stDataEditor"] table thead,
+                div[data-testid="stDataEditor"] table tr {
                     text-align: center !important;
                 }
                 div[data-testid="stDataEditor"] th,
                 div[data-testid="stDataEditor"] td {
                     text-align: center !important;
+                }
+                div[data-testid="stDataEditor"] th *,
+                div[data-testid="stDataEditor"] td *,
+                div[data-testid="stDataEditor"] th p,
+                div[data-testid="stDataEditor"] td p,
+                div[data-testid="stDataEditor"] input,
+                div[data-testid="stDataEditor"] input[type="text"],
+                div[data-testid="stDataEditor"] input[type="number"] {
+                    text-align: center !important;
+                    margin: 0 auto !important;
+                }
+                div[data-testid="stDataEditor"] td > div {
+                    display: flex !important;
+                    justify-content: center !important;
+                    align-items: center !important;
                 }
                 /* Align table positions vertically in Module 3 */
                 div[data-testid="stDataEditor"] {
@@ -443,7 +476,7 @@ if page == "📈 Stock Price Forecaster":
 
         with col_header1:
             st.markdown(f"<h1 style='margin-bottom:0px;'>{saved_ticker}</h1>", unsafe_allow_html = True)
-            st.caption(f"{saved_name}") # Small font for full name
+            st.markdown(f"<p style='font-size: 1.1rem; margin-top: 0px; margin-bottom: 0px;'>{saved_name}</p>", unsafe_allow_html = True) # Larger font for full name
             st.write("")  # Add spacing to align with price metric
         
         with col_header2:
@@ -451,7 +484,7 @@ if page == "📈 Stock Price Forecaster":
             # Use same color scheme as st.metric() delta_color="normal" (green for positive, red for negative)
             # Streamlit metric colors: positive=#28a745, negative=#dc3545
             color = "#28a745" if saved_pct >= 0 else "#dc3545"
-            st.markdown(f"<p style='color: {color}; font-size: 0.875rem; margin-top: 0px; font-weight: 500;'>{saved_change:+.2f} ({saved_pct:+.2f}%)</p>", unsafe_allow_html = True)
+            st.markdown(f"<p style='color: {color}; font-size: 1.1rem; margin-top: 0px; font-weight: 500;'>{saved_change:+.2f} ({saved_pct:+.2f}%)</p>", unsafe_allow_html = True)
             
         st.markdown("---")
 
