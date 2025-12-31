@@ -395,7 +395,6 @@ if page == "📈 Stock Price Forecaster":
                     
                     # Success message
                     st.success(f"✅ **Simulation completed successfully!** Analyzed {simulations} scenarios for {ticker} over {time_horizon} trading days.")
-                    st.balloons()  # Celebration effect
 
     if 'forecast_results' in st.session_state:
         
@@ -425,6 +424,7 @@ if page == "📈 Stock Price Forecaster":
             st.write("")  # Add spacing to align with price metric
         
         with col_header2:
+            st.write("") # Spacing
             st.write("") # Spacing
             st.metric(label = "Current Price", 
                       value = f"${last_price:.2f}", 
@@ -460,11 +460,14 @@ if page == "📈 Stock Price Forecaster":
                                      opacity = 1.0,
                                      hovertemplate = 'Day %{x}<br>Price: $%{y:.2f}<extra></extra>'))
         
-        # Add current price reference line (add to legend)
-        fig.add_hline(y=last_price, line_dash="dash", line_color="green", 
-                     annotation_text=f"Current Price: ${last_price:.2f}",
-                     annotation_position="right",
-                     name="Current Price")
+        # Add current price reference line (as a trace so it appears in legend)
+        fig.add_trace(go.Scatter(x = simulation_df.index,
+                                 y = [last_price] * len(simulation_df.index),
+                                 mode = 'lines',
+                                 name = '💰 Current Price',
+                                 line = dict(color = 'green', width = 2, dash = 'dash'),
+                                 opacity = 1.0,
+                                 hovertemplate = f'Current Price: ${last_price:.2f}<extra></extra>'))
                 
         # Layout setting with better styling
         fig.update_layout(
@@ -548,32 +551,33 @@ if page == "📈 Stock Price Forecaster":
         col3.metric("⚠️ Value at Risk (95% Confidence)",
                     f"${worst_case:.2f}", 
                     f"{worst_pct:+.2f}%",
-                    delta_color = "inverse",
+                    delta_color = "normal",
                     help = "5th Percentile outcome. Indicates a 95% probability that price remains above this level.")
                 
         col4.metric("🔻 CVaR / Expected Shortfall (95%)",
                     f"${cvar_95:.2f}",
                     f"{cvar_pct:+.2f}%",
-                    delta_color = "inverse",
+                    delta_color = "normal",
                     help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
         
         # Risk indicator below CVaR
         prob_loss_pct = prob_loss*100
         loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
 
-        col5, col6 = st.columns(2)
+        col5, col6 = st.columns([3, 1])
 
         # Probability of Loss metric
         col5.metric(f"{loss_color} Probability of Loss",
                   f"{prob_loss_pct:.1f}%",
                   help = "Share of simulations where the terminal price finishes below the current price.")
         
-        if prob_loss_pct < 30:
-            col6.success("✅ Low risk of loss")
-        elif prob_loss_pct < 50:
-            col6.warning("⚠️ Moderate risk of loss")
-        else:
-            col6.error("🔴 High risk of loss")
+        with col6:
+            if prob_loss_pct < 30:
+                st.success("✅ Low risk of loss")
+            elif prob_loss_pct < 50:
+                st.warning("⚠️ Moderate risk of loss")
+            else:
+                st.error("🔴 High risk of loss")
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
@@ -623,7 +627,7 @@ elif page == "⚖️ Portfolio Optimizer":
                                      value = "VTI, VEA, VNQ",
                                      placeholder="e.g., VTI, VEA, VNQ, BND",
                                      help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).",
-                                     height = 100)
+                                     height = 60)
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
@@ -737,7 +741,6 @@ elif page == "⚖️ Portfolio Optimizer":
                 # Success message
                 optimal_sharpe = (opt_ret - risk_free_rate) / opt_std
                 st.success(f"✅ **Optimization completed!** Analyzed {num_portfolios} portfolio combinations. Optimal Sharpe Ratio: {optimal_sharpe:.2f}")
-                st.balloons()
 
     if 'mpt_results' in st.session_state:
         
@@ -1019,6 +1022,8 @@ elif page == "🔄 Portfolio Rebalancer":
     # --- 3. Calculation Logic & Output (Right) ---
     with col_output:
         st.subheader("📊 Rebalancing Plan")
+        # Small spacer to align with left column table position
+        st.markdown("<br>", unsafe_allow_html=True)
 
         if calculate_btn:
             # A. Validation
@@ -1058,6 +1063,7 @@ elif page == "🔄 Portfolio Rebalancer":
                                 # C. Core Math (Rebalancing)
                                 results = []
                                 total_equity = current_cash
+                                
                                 
                                 # 1. Calculate Total Portfolio Value first
                                 for index, row in valid_rows.iterrows():
@@ -1171,7 +1177,6 @@ elif page == "🔄 Portfolio Rebalancer":
                 display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
                 
                 # Show Main Table (centered)
-                st.markdown("**📋 Required Trades:**")
                 st.dataframe(display_df, hide_index = True, use_container_width = True)
                 
                 # Info message (moved below table)
