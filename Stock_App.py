@@ -30,7 +30,7 @@ st.caption("Advanced Financial Modeling & Optimization")
 
 # Page Navigation
 page = st.radio("Select Tool:", 
-                ["Stock Price Forecaster", "Portfolio Optimizer"], 
+                ["Stock Price Forecaster", "Portfolio Optimizer", "Portfolio Rebalancer"], 
                 horizontal = True,
                 label_visibility = "collapsed")
 
@@ -661,6 +661,186 @@ elif page == "Portfolio Optimizer":
         allocation_df['Weight'] = allocation_df['Weight'].apply(lambda x: f"{x*100:.2f}%")
                     
         st.table(allocation_df.set_index('Ticker'))
+
+# ==========================================
+# MODULE 3: PORTFOLIO REBALANCER
+# ==========================================
+
+elif page == "Portfolio Rebalancer":
+    st.header("Portfolio Rebalancing Assistant")
+    st.caption("Calculate trades to align your portfolio with target allocations.")
+
+    # --- 1. Global Inputs (Cash) ---
+    # Scheme B: Independent Cash Input
+    current_cash = st.number_input("Current Cash Balance ($)", 
+                                   min_value = 0.0, 
+                                   value = 10000.0, 
+                                   step = 100.0,
+                                   help = "Enter the amount of uninvested cash you currently hold.")
+
+    st.divider()
+
+    col_input, col_output = st.columns([1, 1], gap = "medium")
+
+    # --- 2. Input Section (Left) ---
+    with col_input:
+        st.subheader("Current Holdings")
+        
+        # Initialize default data structure for the editor
+        if 'rebalance_data' not in st.session_state:
+            default_data = {
+                "Ticker": ["VTI", "VXUS", "BND"],
+                "Shares": [50, 30, 20],
+                "Target (%)": [60.0, 30.0, 10.0]
+            }
+            st.session_state['rebalance_data'] = pd.DataFrame(default_data)
+
+        # Data Editor (Excel-like input)
+        input_df = st.data_editor(st.session_state['rebalance_data'], 
+                                  num_rows = "dynamic", 
+                                  use_container_width = True,
+                                  column_config = {
+                                      "Ticker": st.column_config.TextColumn("Ticker", required = True),
+                                      "Shares": st.column_config.NumberColumn("Shares", min_value = 0, step = 1, format = "%d"),
+                                      "Target (%)": st.column_config.NumberColumn("Target %", min_value = 0, max_value = 100, step = 0.1, format = "%.1f%%")
+                                  })
+        
+        # Save changes to session state to prevent data loss on rerun
+        st.session_state['rebalance_data'] = input_df
+
+        # Action Button
+        st.write("")
+        calculate_btn = st.button("Calculate Rebalancing", type = "primary", use_container_width = True)
+
+    # --- 3. Calculation Logic & Output (Right) ---
+    with col_output:
+        st.subheader("Rebalancing Plan")
+
+        if calculate_btn:
+            # A. Validation
+            valid_rows = input_df[input_df['Ticker'].notna() & (input_df['Ticker'] != "")]
+            
+            if valid_rows.empty:
+                st.warning("Please enter at least one valid ticker.")
+            
+            elif valid_rows['Target (%)'].sum() > 100.1: # Allow small float error
+                st.error(f"Total Target Allocation ({valid_rows['Target (%)'].sum():.1f}%) exceeds 100%. Please adjust.")
+            
+            else:
+                with st.spinner("Fetching latest prices..."):
+                    
+                    # B. Fetch Data
+                    tickers = valid_rows['Ticker'].str.upper().tolist()
+                    # Fetch 5 days to ensure we get the last closing price even on weekends/holidays
+                    market_data = get_stock_data(tickers, period = "5d") 
+
+                    if market_data is None or market_data.empty:
+                        st.error("Failed to fetch stock data. Please check your tickers.")
+                    
+                    else:
+                        try:
+                            # Handle Data Structure (Single vs Multi-Index)
+                            # We need a Series of Current Prices: {Ticker: Price}
+                            current_prices = {}
+                            
+                            # Standardize column access (Prefer 'Adj Close', then 'Close')
+                            price_col = 'Adj Close' if 'Adj Close' in market_data.columns else 'Close'
+                            
+                            if len(tickers) == 1:
+                                # Single ticker returns a DataFrame with columns like [Open, Close...]
+                                # Get the last valid price
+                                last_valid_idx = market_data[price_col].last_valid_index()
+                                price = float(market_data.loc[last_valid_idx, price_col])
+                                current_prices[tickers[0]] = price
+                            else:
+                                # Batch returns MultiIndex columns: (Price_Type, Ticker)
+                                # Extract just the price block
+                                df_prices = market_data[price_col]
+                                # Get last valid row
+                                last_prices = df_prices.iloc[-1]
+                                current_prices = last_prices.to_dict()
+
+                            # C. Core Math (Rebalancing)
+                            results = []
+                            total_equity = current_cash
+                            
+                            # 1. Calculate Total Portfolio Value first
+                            for index, row in valid_rows.iterrows():
+                                ticker = row['Ticker'].upper()
+                                shares = row['Shares']
+                                price = current_prices.get(ticker, 0.0)
+                                
+                                if price == 0.0:
+                                    st.warning(f"Could not find price for {ticker}. Skipping.")
+                                    continue
+                                
+                                position_value = shares * price
+                                total_equity += position_value
+                            
+                            # 2. Calculate New Allocation
+                            projected_cash = total_equity # Start with total, subtract as we 'buy'
+                            
+                            for index, row in valid_rows.iterrows():
+                                ticker = row['Ticker'].upper()
+                                current_shares = row['Shares']
+                                target_pct = row['Target (%)'] / 100.0
+                                price = current_prices.get(ticker, 0)
+                                
+                                if price > 0:
+                                    # Target Value for this stock
+                                    target_value = total_equity * target_pct
+                                    
+                                    # Calculate New Shares (Floor division to avoid fractional shares)
+                                    new_shares = int(np.floor(target_value / price))
+                                    
+                                    # Calculate Trades
+                                    trade_shares = new_shares - current_shares
+                                    
+                                    # Final Value for this stock
+                                    final_value = new_shares * price
+                                    projected_cash -= final_value # Deduct cost from total pool
+                                    
+                                    # Actual achieved weight (may differ slightly due to rounding)
+                                    actual_weight = (final_value / total_equity) * 100
+                                    
+                                    results.append({
+                                        "Ticker": ticker,
+                                        "New Shares": new_shares,
+                                        "Trade (+/-)": trade_shares, # Key output
+                                        "Value ($)": final_value,
+                                        "Actual %": actual_weight
+                                    })
+
+                            # D. Construct Results DataFrame
+                            res_df = pd.DataFrame(results)
+                            
+                            # Formatting for display
+                            display_df = res_df.copy()
+                            display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
+                            display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
+                            display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
+
+                            # Show Main Table
+                            st.dataframe(display_df, hide_index = True, use_container_width = True)
+
+                            # Show Cash Summary
+                            # The remaining cash after buying integer shares
+                            cash_pct = (projected_cash / total_equity) * 100
+                            
+                            st.info(f"""
+                                    **Result Summary:**
+                                    - **Total Portfolio Value:** ${total_equity:,.2f}
+                                    - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
+                                    """)
+
+                            if projected_cash < 0:
+                                st.error("Warning: Negative cash balance! Please reduce target percentages or add cash.")
+
+                        except Exception as e:
+                            st.error(f"An error occurred during calculation: {e}")
+
+        else:
+            st.info("👈 Enter your holdings and targets on the left, then click Calculate.")
 
 # ==========================================
 #  Footer & Disclaimer 
