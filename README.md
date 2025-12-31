@@ -1,5 +1,7 @@
 # Financial Analysis & Optimization Tool
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://financialanalysistool-jasonhuang.streamlit.app)
+
 A comprehensive, production-ready Streamlit application for financial analysis, portfolio optimization, and risk assessment. Built with modern quantitative finance techniques including Monte Carlo simulation and Modern Portfolio Theory.
 
 ## Overview
