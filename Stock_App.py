@@ -27,7 +27,7 @@ REBALANCER_DATA_PERIOD = "5d"  # Period for rebalancer (to get latest prices)
 
 # Monte Carlo Simulation Defaults
 DEFAULT_SIMULATIONS = 200
-DEFAULT_TIME_HORIZON = 30  # Trading days
+DEFAULT_TIME_HORIZON = 20  # Trading days
 DEFAULT_RANDOM_SEED = 42
 MAX_SIMULATIONS = 1000
 MIN_SIMULATIONS = 100
@@ -236,16 +236,15 @@ if page == "📈 Stock Price Forecaster":
     # --- Sidebar Settings ---  
     st.sidebar.header("⚙️ Simulation Parameters")
     
-    with st.sidebar.expander("💡 Quick Tips", expanded=False):
+    with st.sidebar.expander("💡 Quick Tips", expanded = False):
         st.markdown("""
         - **Time Horizon**: Longer periods = more uncertainty
-        - **Simulations**: More = more accurate but slower
-        - **Popular Tickers**: AAPL, GOOGL, MSFT, VOO, SPY
+        - **Simulations**: More simulations = more accurate but slower
         """)
     
     time_horizon = st.sidebar.slider("Time Horizon (Trading Days)", 
                                      MIN_TIME_HORIZON, MAX_TIME_HORIZON, DEFAULT_TIME_HORIZON,
-                                     help = "Number of trading days into the future for prediction. Typical: 30 days = ~1 month, 252 days = ~1 year")
+                                     help = "Number of trading days into the future for prediction. Typical: 20 days = ~1 month, 252 days = ~1 year")
     
     simulations = st.sidebar.slider("Number of Simulations", 
                                     MIN_SIMULATIONS, MAX_SIMULATIONS, DEFAULT_SIMULATIONS,
@@ -265,7 +264,7 @@ if page == "📈 Stock Price Forecaster":
         ticker = st.text_input("Enter Stock Ticker", 
                                value = "VOO", 
                                placeholder="e.g., AAPL, GOOGL, MSFT, VOO",
-                               help = "Enter a valid stock ticker symbol. Examples: VOO (Vanguard S&P 500), AAPL (Apple), GOOGL (Google)")
+                               help = "Enter a valid stock ticker symbol. Examples: VOO, AAPL, GOOGL")
     with col2:
         st.write("") 
         st.write("") 
@@ -426,6 +425,7 @@ if page == "📈 Stock Price Forecaster":
             st.write("")  # Add spacing to align with price metric
         
         with col_header2:
+            st.write("") # Spacing
             st.metric(label = "Current Price", 
                       value = f"${last_price:.2f}", 
                       delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
@@ -548,30 +548,32 @@ if page == "📈 Stock Price Forecaster":
         col3.metric("⚠️ Value at Risk (95% Confidence)",
                     f"${worst_case:.2f}", 
                     f"{worst_pct:+.2f}%",
-                    delta_color = "inverse" if worst_pct < 0 else "normal",
+                    delta_color = "inverse",
                     help = "5th Percentile outcome. Indicates a 95% probability that price remains above this level.")
                 
         col4.metric("🔻 CVaR / Expected Shortfall (95%)",
                     f"${cvar_95:.2f}",
                     f"{cvar_pct:+.2f}%",
-                    delta_color = "inverse" if cvar_pct < 0 else "normal",
+                    delta_color = "inverse",
                     help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
         
         # Risk indicator below CVaR
         prob_loss_pct = prob_loss*100
         loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
-        
-        if prob_loss_pct < 30:
-            st.success("✅ Low risk of loss")
-        elif prob_loss_pct < 50:
-            st.warning("⚠️ Moderate risk of loss")
-        else:
-            st.error("🔴 High risk of loss")
-        
+
+        col5, col6 = st.columns(2)
+
         # Probability of Loss metric
-        st.metric(f"{loss_color} Probability of Loss",
+        col5.metric(f"{loss_color} Probability of Loss",
                   f"{prob_loss_pct:.1f}%",
                   help = "Share of simulations where the terminal price finishes below the current price.")
+        
+        if prob_loss_pct < 30:
+            col6.success("✅ Low risk of loss")
+        elif prob_loss_pct < 50:
+            col6.warning("⚠️ Moderate risk of loss")
+        else:
+            col6.error("🔴 High risk of loss")
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
@@ -587,8 +589,7 @@ elif page == "⚖️ Portfolio Optimizer":
     with st.sidebar.expander("💡 Quick Tips", expanded=False):
         st.markdown("""
         - **Diversification**: Mix stocks from different sectors/regions
-        - **Popular ETFs**: VTI (US), VEA (International), VNQ (Real Estate), BND (Bonds)
-        - **Risk-Free Rate**: Current ~3-5% (US Treasury rate)
+        - **Risk-Free Rate**: ~2-5% (US Treasury rate)
         - **More Simulations**: Better accuracy but slower
         """)
     
@@ -602,7 +603,7 @@ elif page == "⚖️ Portfolio Optimizer":
                                                    min_value = MIN_RISK_FREE_RATE,
                                                    max_value = MAX_RISK_FREE_RATE,
                                                    step = 0.1,
-                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill). Typical: 3-5%")
+                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill). Typical: 2-5%")
     
     # Convert to decimal
     risk_free_rate = risk_free_rate_input / 100
@@ -1128,7 +1129,6 @@ elif page == "🔄 Portfolio Rebalancer":
                                     display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
 
                                     # Show Main Table (centered)
-                                    st.markdown("**📋 Required Trades:**")
                                     st.dataframe(display_df, hide_index = True, use_container_width = True)
                                     
                                     # Success message (moved below table)
