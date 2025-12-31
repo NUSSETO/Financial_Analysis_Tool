@@ -98,6 +98,29 @@ st.markdown("""
                     padding: 10px;
                     margin: 10px 0;
                 }
+                
+                /* Module 3: Center-align table content and align table heights */
+                div[data-testid="stDataFrame"] table {
+                    text-align: center !important;
+                }
+                div[data-testid="stDataFrame"] th,
+                div[data-testid="stDataFrame"] td {
+                    text-align: center !important;
+                }
+                div[data-testid="stDataEditor"] table {
+                    text-align: center !important;
+                }
+                div[data-testid="stDataEditor"] th,
+                div[data-testid="stDataEditor"] td {
+                    text-align: center !important;
+                }
+                /* Align table positions vertically in Module 3 */
+                div[data-testid="stDataEditor"] {
+                    margin-top: 0px !important;
+                }
+                div[data-testid="stDataFrame"] {
+                    margin-top: 0px !important;
+                }
             </style>
             """, 
             unsafe_allow_html = True)
@@ -416,7 +439,7 @@ if page == "📈 Stock Price Forecaster":
     
         # --- Output Visualization ---
         st.write("") # Spacing
-        col_header1, col_header2 = st.columns([3, 1]) # Left gets more space
+        col_header1, col_header2 = st.columns([2, 1]) # Left gets more space
 
         with col_header1:
             st.markdown(f"<h1 style='margin-bottom:0px;'>{saved_ticker}</h1>", unsafe_allow_html = True)
@@ -629,7 +652,7 @@ elif page == "⚖️ Portfolio Optimizer":
                                      value = "VTI, VEA, VNQ",
                                      placeholder="e.g., VTI, VEA, VNQ, BND",
                                      help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).",
-                                     height = 25)
+                                     height = 20)
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
@@ -971,33 +994,6 @@ elif page == "🔄 Portfolio Rebalancer":
                 "Target (%)": [60.0, 30.0, 10.0]
             }
             st.session_state['rebalance_data'] = pd.DataFrame(default_data)
-
-        # Add CSS to center-align table content and align table heights in Module 3
-        st.markdown("""
-        <style>
-        div[data-testid="stDataFrame"] table {
-            text-align: center !important;
-        }
-        div[data-testid="stDataFrame"] th,
-        div[data-testid="stDataFrame"] td {
-            text-align: center !important;
-        }
-        div[data-testid="stDataEditor"] table {
-            text-align: center !important;
-        }
-        div[data-testid="stDataEditor"] th,
-        div[data-testid="stDataEditor"] td {
-            text-align: center !important;
-        }
-        /* Align table positions vertically */
-        div[data-testid="stDataEditor"] {
-            margin-top: 0px !important;
-        }
-        div[data-testid="stDataFrame"] {
-            margin-top: -4px !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
         
         # Data Editor (Excel-like input)
         input_df = st.data_editor(st.session_state['rebalance_data'], 
