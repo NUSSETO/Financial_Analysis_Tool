@@ -447,8 +447,6 @@ if page == "📈 Stock Price Forecaster":
             st.write("")  # Add spacing to align with price metric
         
         with col_header2:
-            st.write("") # Spacing
-            st.write("") # Spacing
             st.markdown(f"<h1 style='margin-bottom:0px;'>Current Price: ${last_price:.2f}</h1>", unsafe_allow_html = True)
             # Use same color scheme as st.metric() delta_color="normal" (green for positive, red for negative)
             # Streamlit metric colors: positive=#28a745, negative=#dc3545
@@ -651,11 +649,10 @@ elif page == "⚖️ Portfolio Optimizer":
     col_input, col_btn = st.columns([4, 1]) 
     
     with col_input:
-        tickers_input = st.text_area("Enter Stock Tickers (Comma Separated)", 
+        tickers_input = st.text_input("Enter Stock Tickers (Comma Separated)", 
                                      value = "VTI, VEA, VNQ",
                                      placeholder="e.g., VTI, VEA, VNQ, BND",
-                                     help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).",
-                                     height = 20)
+                                     help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).")
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
