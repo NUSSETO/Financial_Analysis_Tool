@@ -426,9 +426,8 @@ if page == "📈 Stock Price Forecaster":
         with col_header2:
             st.write("") # Spacing
             st.write("") # Spacing
-            st.metric(label = "Current Price", 
-                      value = f"${last_price:.2f}", 
-                      delta = f"{saved_change:+.2f} ({saved_pct:+.2f}%)")
+            st.markdown(f"<h1 style='margin-bottom:0px;'>Current Price: ${last_price:.2f}</h1>", unsafe_allow_html = True)
+            st.caption(f"{saved_change:+.2f} ({saved_pct:+.2f}%)") # Small font for percentage change
             
         st.markdown("---")
 
@@ -564,7 +563,7 @@ if page == "📈 Stock Price Forecaster":
         prob_loss_pct = prob_loss*100
         loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
 
-        col5, col6 = st.columns([3, 1])
+        col5, col6 = st.columns([1, 1])
 
         # Probability of Loss metric
         col5.metric(f"{loss_color} Probability of Loss",
@@ -572,12 +571,15 @@ if page == "📈 Stock Price Forecaster":
                   help = "Share of simulations where the terminal price finishes below the current price.")
         
         with col6:
-            if prob_loss_pct < 30:
-                st.success("✅ Low risk of loss")
-            elif prob_loss_pct < 50:
-                st.warning("⚠️ Moderate risk of loss")
-            else:
-                st.error("🔴 High risk of loss")
+            # Use nested columns to limit the width of the warning message
+            col6a, col6b = st.columns([1, 1])
+            with col6a:
+                if prob_loss_pct < 30:
+                    st.success("✅ Low risk of loss")
+                elif prob_loss_pct < 50:
+                    st.warning("⚠️ Moderate risk of loss")
+                else:
+                    st.error("🔴 High risk of loss")
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
@@ -627,7 +629,7 @@ elif page == "⚖️ Portfolio Optimizer":
                                      value = "VTI, VEA, VNQ",
                                      placeholder="e.g., VTI, VEA, VNQ, BND",
                                      help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).",
-                                     height = 60)
+                                     height = 25)
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
@@ -970,7 +972,7 @@ elif page == "🔄 Portfolio Rebalancer":
             }
             st.session_state['rebalance_data'] = pd.DataFrame(default_data)
 
-        # Add CSS to center-align table content in Module 3
+        # Add CSS to center-align table content and align table heights in Module 3
         st.markdown("""
         <style>
         div[data-testid="stDataFrame"] table {
@@ -986,6 +988,13 @@ elif page == "🔄 Portfolio Rebalancer":
         div[data-testid="stDataEditor"] th,
         div[data-testid="stDataEditor"] td {
             text-align: center !important;
+        }
+        /* Align table positions vertically */
+        div[data-testid="stDataEditor"] {
+            margin-top: 0px !important;
+        }
+        div[data-testid="stDataFrame"] {
+            margin-top: -4px !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -1022,8 +1031,6 @@ elif page == "🔄 Portfolio Rebalancer":
     # --- 3. Calculation Logic & Output (Right) ---
     with col_output:
         st.subheader("📊 Rebalancing Plan")
-        # Small spacer to align with left column table position
-        st.markdown("<br>", unsafe_allow_html=True)
 
         if calculate_btn:
             # A. Validation
