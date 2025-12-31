@@ -439,7 +439,7 @@ if page == "📈 Stock Price Forecaster":
     
         # --- Output Visualization ---
         st.write("") # Spacing
-        col_header1, col_header2 = st.columns([2, 1]) # Left gets more space
+        col_header1, col_header2 = st.columns([1, 1]) # Left gets more space
 
         with col_header1:
             st.markdown(f"<h1 style='margin-bottom:0px;'>{saved_ticker}</h1>", unsafe_allow_html = True)
@@ -450,7 +450,10 @@ if page == "📈 Stock Price Forecaster":
             st.write("") # Spacing
             st.write("") # Spacing
             st.markdown(f"<h1 style='margin-bottom:0px;'>Current Price: ${last_price:.2f}</h1>", unsafe_allow_html = True)
-            st.caption(f"{saved_change:+.2f} ({saved_pct:+.2f}%)") # Small font for percentage change
+            # Use same color scheme as st.metric() delta_color="normal" (green for positive, red for negative)
+            # Streamlit metric colors: positive=#28a745, negative=#dc3545
+            color = "#28a745" if saved_pct >= 0 else "#dc3545"
+            st.markdown(f"<p style='color: {color}; font-size: 0.875rem; margin-top: 0px; font-weight: 500;'>{saved_change:+.2f} ({saved_pct:+.2f}%)</p>", unsafe_allow_html = True)
             
         st.markdown("---")
 
