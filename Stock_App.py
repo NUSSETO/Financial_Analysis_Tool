@@ -1,9 +1,57 @@
+"""
+Financial Analysis & Optimization Tool
+
+A Streamlit application for stock price forecasting, portfolio optimization, and rebalancing.
+Uses Monte Carlo simulation and Modern Portfolio Theory for financial analysis.
+
+Author: Jason Huang
+Year: 2025
+"""
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go 
 import scipy.optimize as sco 
 import streamlit as st
 import yfinance as yf
+
+# ==========================================
+# Configuration Constants
+# ==========================================
+
+# API Configuration
+CACHE_TTL_SECONDS = 3600  # 1 hour cache for stock data
+DEFAULT_DATA_PERIOD = "1y"  # Default period for stock forecaster
+OPTIMIZER_DATA_PERIOD = "3y"  # Period for portfolio optimizer
+REBALANCER_DATA_PERIOD = "5d"  # Period for rebalancer (to get latest prices)
+
+# Monte Carlo Simulation Defaults
+DEFAULT_SIMULATIONS = 200
+DEFAULT_TIME_HORIZON = 30  # Trading days
+DEFAULT_RANDOM_SEED = 42
+MAX_SIMULATIONS = 1000
+MIN_SIMULATIONS = 100
+MAX_TIME_HORIZON = 365
+MIN_TIME_HORIZON = 5
+MAX_LINES_TO_PLOT = 50  # Limit visualization lines for performance
+
+# Portfolio Optimizer Defaults
+DEFAULT_NUM_PORTFOLIOS = 5000
+MIN_NUM_PORTFOLIOS = 1000
+MAX_NUM_PORTFOLIOS = 10000
+DEFAULT_RISK_FREE_RATE = 3.0  # Percentage
+MIN_RISK_FREE_RATE = 0.0
+MAX_RISK_FREE_RATE = 10.0
+HIGH_CORRELATION_THRESHOLD = 0.90  # Alert if correlation > this value
+
+# Portfolio Rebalancer Defaults
+DEFAULT_CASH_BALANCE = 10000.0
+ALLOCATION_TOLERANCE = 0.1  # Allow small float error in percentage sums
+MAX_CASH_PERCENTAGE_WARNING = 5.0  # Warn if cash > 5% of portfolio
+
+# Risk Analysis Constants
+VAR_CONFIDENCE_LEVEL = 0.05  # 5th percentile for VaR (95% confidence)
+MIN_VOLATILITY_FOR_SHARPE = 1e-10  # Avoid division by zero in Sharpe ratio
 
 # ==========================================
 # Application Configuration
@@ -13,10 +61,43 @@ st.set_page_config(page_title = "Financial Analysis Tool",
                    layout = "wide",
                    initial_sidebar_state = "collapsed")
 
-# Inject custom CSS for metric styling
+# Inject custom CSS for enhanced styling
 st.markdown("""
             <style>
-                div[data-testid = "stMetricValue"] {font-size: 24px;}
+                /* Metric styling */
+                div[data-testid = "stMetricValue"] {
+                    font-size: 24px;
+                    font-weight: 600;
+                }
+                
+                /* Header styling */
+                h1 {
+                    color: #1f77b4;
+                }
+                
+                /* Button hover effects */
+                .stButton > button {
+                    transition: all 0.3s ease;
+                }
+                
+                .stButton > button:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+                }
+                
+                /* Info boxes */
+                .stInfo {
+                    border-left: 4px solid #1f77b4;
+                }
+                
+                /* Success indicators */
+                .success-box {
+                    background-color: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    border-radius: 5px;
+                    padding: 10px;
+                    margin: 10px 0;
+                }
             </style>
             """, 
             unsafe_allow_html = True)
@@ -25,12 +106,12 @@ st.markdown("""
 # Main Page Header
 # ==========================================
 
-st.title("Financial Analysis Tool")
-st.caption("Advanced Financial Modeling & Optimization")
+st.title("📊 Financial Analysis Tool")
+st.caption("Advanced Financial Modeling & Optimization | Powered by Modern Portfolio Theory & Monte Carlo Simulation")
 
-# Page Navigation
+# Page Navigation with better labels
 page = st.radio("Select Tool:", 
-                ["Stock Price Forecaster", "Portfolio Optimizer", "Portfolio Rebalancer"], 
+                ["📈 Stock Price Forecaster", "⚖️ Portfolio Optimizer", "🔄 Portfolio Rebalancer"], 
                 horizontal = True,
                 label_visibility = "collapsed")
 
@@ -40,7 +121,7 @@ st.markdown("---")
 # Load Data Using Yahoo Finance API
 # ==========================================
 
-@st.cache_data(ttl = 3600)
+@st.cache_data(ttl = CACHE_TTL_SECONDS)
 def get_stock_data(tickers, period):
     """
     Fetches historical stock data from Yahoo Finance for a single ticker or a list of tickers.
@@ -76,7 +157,7 @@ def get_stock_data(tickers, period):
         return None
 
 
-@st.cache_data(ttl = 3600)
+@st.cache_data(ttl = CACHE_TTL_SECONDS)
 def get_stock_info(ticker):
     """
     Fetches stock information (company name, etc.) from Yahoo Finance.
@@ -147,27 +228,35 @@ def extract_price_data(raw_data, prefer_adj_close=True):
 # MODULE 1: STOCK PRICE FORECASTER
 # ==========================================
 
-if page == "Stock Price Forecaster":
+if page == "📈 Stock Price Forecaster":
     
-    st.header("Stock Price Prediction")
+    st.header("📈 Stock Price Prediction")
+    st.markdown("**Forecast future stock prices using Monte Carlo simulation based on historical volatility**")
     
     # --- Sidebar Settings ---  
-    st.sidebar.header("Simulation Parameters")
+    st.sidebar.header("⚙️ Simulation Parameters")
+    
+    with st.sidebar.expander("💡 Quick Tips", expanded=False):
+        st.markdown("""
+        - **Time Horizon**: Longer periods = more uncertainty
+        - **Simulations**: More = more accurate but slower
+        - **Popular Tickers**: AAPL, GOOGL, MSFT, VOO, SPY
+        """)
     
     time_horizon = st.sidebar.slider("Time Horizon (Trading Days)", 
-                                     5, 365, 30,
-                                     help = "Number of trading days into the future for prediction")
+                                     MIN_TIME_HORIZON, MAX_TIME_HORIZON, DEFAULT_TIME_HORIZON,
+                                     help = "Number of trading days into the future for prediction. Typical: 30 days = ~1 month, 252 days = ~1 year")
     
     simulations = st.sidebar.slider("Number of Simulations", 
-                                    100, 1000, 200,
-                                    help = "More simulations = more accurate results, but slower speed")
+                                    MIN_SIMULATIONS, MAX_SIMULATIONS, DEFAULT_SIMULATIONS,
+                                    help = "More simulations = more accurate results, but slower speed. Recommended: 200-500 for balance")
     
     seed = st.sidebar.number_input("Random Seed", 
-                                   value = 42, 
+                                   value = DEFAULT_RANDOM_SEED, 
                                    min_value = 0,
                                    step = 1,
                                    format = "%d",
-                                   help = "Fix the random numbers for reproducible results.")
+                                   help = "Fix the random numbers for reproducible results. Change to get different scenarios.")
     
     # --- Input Section ---
     col1, col2 = st.columns([4, 1]) 
@@ -175,79 +264,90 @@ if page == "Stock Price Forecaster":
     with col1:
         ticker = st.text_input("Enter Stock Ticker", 
                                value = "VOO", 
-                               help = "Please enter a valid ticker (e.g., VOO, AAPL)")
+                               placeholder="e.g., AAPL, GOOGL, MSFT, VOO",
+                               help = "Enter a valid stock ticker symbol. Examples: VOO (Vanguard S&P 500), AAPL (Apple), GOOGL (Google)")
     with col2:
         st.write("") 
         st.write("") 
-        start_sim = st.button("Start Simulation", 
+        start_sim = st.button("🚀 Start Simulation", 
                               type = "primary", 
                               use_container_width = True)
     
     # --- Simulation Logic ---
     if start_sim:
-        with st.spinner('Running Monte Carlo Simulation...'):
+        # Input validation
+        if not ticker or not ticker.strip():
+            st.error("❌ **Please enter a stock ticker symbol.**")
+            st.info("💡 **Tip:** Try popular tickers like AAPL, GOOGL, MSFT, or VOO")
+        else:
+            ticker = ticker.strip().upper()
+            with st.spinner('🔄 Running Monte Carlo Simulation... This may take a few seconds.'):
+                np.random.seed(int(round(seed)))
+                stock_data = get_stock_data(ticker, period = DEFAULT_DATA_PERIOD)
 
-            np.random.seed(int(round(seed)))
-            stock_data = get_stock_data(ticker, period = "1y")
-
-            if stock_data is None or stock_data.empty:
-                st.error(f"Ticker '{ticker}' not found or API unavailable.")
-                
-            else:
-
-                # Fetch full name using cached function
-                stock_info = get_stock_info(ticker)
-                stock_name = stock_info.get('longName', ticker) if stock_info else ticker
-
-                # Data Preprocessing using helper function
-                price_data = extract_price_data(stock_data, prefer_adj_close=True)
-                
-                if price_data is None or price_data.empty:
-                    st.error(f"Data Error: Closing price is missing for {ticker}.")
-                    st.stop()
-                
-                # Extract as Series for single ticker
-                closing_prices = price_data.iloc[:, 0]  # Get first (and only) column as Series
-
-                last_price = float(closing_prices.iloc[-1]) 
-
-                # Calculate Daily Change (Previous Close vs Current)
-                if len(closing_prices) >= 2:
-                    prev_price = float(closing_prices.iloc[-2])
-                    price_change = last_price - prev_price
-                    pct_change = (price_change / prev_price) * 100
+                if stock_data is None or stock_data.empty:
+                    st.error(f"❌ **Ticker '{ticker}' not found or API unavailable.**")
+                    st.info(f"""
+                    **Troubleshooting:**
+                    - Check if the ticker symbol is correct (e.g., AAPL not Apple)
+                    - Try a different ticker (e.g., VOO, SPY, MSFT)
+                    - The API might be temporarily unavailable - please try again in a moment
+                    """)
+                    
                 else:
-                    price_change = 0.0
-                    pct_change = 0.0
+                    # Fetch full name using cached function
+                    stock_info = get_stock_info(ticker)
+                    stock_name = stock_info.get('longName', ticker) if stock_info else ticker
 
-                # Calculate Log Returns for Geometric Brownian Motion parameters
-                log_returns = np.log(closing_prices / closing_prices.shift(1)).dropna()
-                mu = log_returns.mean()
-                sigma = log_returns.std()
+                    # Data Preprocessing using helper function
+                    price_data = extract_price_data(stock_data, prefer_adj_close=True)
+                    
+                    if price_data is None or price_data.empty:
+                        st.error(f"Data Error: Closing price is missing for {ticker}.")
+                        st.stop()
+                    
+                    # Extract as Series for single ticker
+                    closing_prices = price_data.iloc[:, 0]  # Get first (and only) column as Series
+
+                    last_price = float(closing_prices.iloc[-1]) 
+
+                    # Calculate Daily Change (Previous Close vs Current)
+                    if len(closing_prices) >= 2:
+                        prev_price = float(closing_prices.iloc[-2])
+                        price_change = last_price - prev_price
+                        pct_change = (price_change / prev_price) * 100
+                    else:
+                        price_change = 0.0
+                        pct_change = 0.0
+
+                    # Calculate Log Returns for Geometric Brownian Motion parameters
+                    log_returns = np.log(closing_prices / closing_prices.shift(1)).dropna()
+                    mu = log_returns.mean()
+                    sigma = log_returns.std()
+                    
+                    # --- Vectorized Monte Carlo Simulation (GBM) ---
+                    # 1. Pre-compute random shocks (Brownian Motion component)
+                    # Shape: (time_horizon, simulations)
+                    shocks = np.random.normal(0, 1, (time_horizon, simulations))
                 
-                # --- Vectorized Monte Carlo Simulation (GBM) ---
-                # 1. Pre-compute random shocks (Brownian Motion component)
-                # Shape: (time_horizon, simulations)
-                shocks = np.random.normal(0, 1, (time_horizon, simulations))
-            
-                # 2. Compute Daily Returns using Geometric Brownian Motion formula
-                drift = mu - 0.5 * sigma**2
-                daily_returns = np.exp(drift + sigma * shocks)
-            
-                # 3. Aggregate into Price Paths
-                # Initialize starting point with 1s to apply last_price scaling later
-                price_paths = np.vstack([np.ones((1, simulations)), daily_returns])
-                price_paths = last_price * price_paths.cumprod(axis = 0)
-
-                # Compute Key Metrics directly from numpy array (memory efficient)
-                end_prices = price_paths[-1, :]  # Last row contains all terminal prices
-
-                # Center tendency
-                expected_price = float(np.mean(end_prices))
-                median_price = float(np.median(end_prices))
+                    # 2. Compute Daily Returns using Geometric Brownian Motion formula
+                    drift = mu - 0.5 * sigma**2
+                    daily_returns = np.exp(drift + sigma * shocks)
                 
-                # For worst case, we use a 95% CI              
-                worst_case = float(np.percentile(end_prices, 5))
+                    # 3. Aggregate into Price Paths
+                    # Initialize starting point with 1s to apply last_price scaling later
+                    price_paths = np.vstack([np.ones((1, simulations)), daily_returns])
+                    price_paths = last_price * price_paths.cumprod(axis = 0)
+
+                    # Compute Key Metrics directly from numpy array (memory efficient)
+                    end_prices = price_paths[-1, :]  # Last row contains all terminal prices
+
+                    # Center tendency
+                    expected_price = float(np.mean(end_prices))
+                    median_price = float(np.median(end_prices))
+                    
+                # For worst case, we use VaR at specified confidence level              
+                worst_case = float(np.percentile(end_prices, VAR_CONFIDENCE_LEVEL * 100))
 
                 # CVaR / Expected Shortfall (average of worst 5%)
                 tail = end_prices[end_prices <= worst_case]
@@ -256,10 +356,9 @@ if page == "Stock Price Forecaster":
                 # Probability of Loss
                 prob_loss = float(np.mean(end_prices < last_price))  # 0~1
                 
-                # Optimization: Only create DataFrame for visualization subset (max 50 columns)
+                # Optimization: Only create DataFrame for visualization subset
                 # This reduces memory usage by ~95% when running 1000 simulations
-                max_lines_to_plot = 50
-                columns_to_store = min(simulations, max_lines_to_plot)
+                columns_to_store = min(simulations, MAX_LINES_TO_PLOT)
                 
                 # Find the worst scenario index to ensure it's included in the plot
                 worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
@@ -294,6 +393,10 @@ if page == "Stock Price Forecaster":
                                                         'ticker': ticker,
                                                         'time_horizon': time_horizon, 
                                                         'simulations': simulations}
+                
+                # Success message
+                st.success(f"✅ **Simulation completed successfully!** Analyzed {simulations} scenarios for {ticker} over {time_horizon} trading days.")
+                st.balloons()  # Celebration effect
 
     if 'forecast_results' in st.session_state:
         
@@ -342,8 +445,8 @@ if page == "Stock Price Forecaster":
             fig.add_trace(go.Scatter(x = simulation_df.index,
                                      y = simulation_df[col],
                                      mode = 'lines', 
-                                     opacity = 0.375,
-                                     line = dict(width = 1),
+                                     opacity = 0.3,
+                                     line = dict(width = 1, color = '#636EFA'),
                                      showlegend = False,
                                      hoverinfo = 'skip' ))
     
@@ -352,16 +455,36 @@ if page == "Stock Price Forecaster":
             fig.add_trace(go.Scatter(x = simulation_df.index,
                                      y = simulation_df['Mean'],
                                      mode = 'lines',
-                                     name = 'Expected Average',
-                                     line = dict(color = 'red', width = 3),
-                                     opacity = 1.0))
+                                     name = '📊 Expected Average',
+                                     line = dict(color = '#EF553B', width = 3),
+                                     opacity = 1.0,
+                                     hovertemplate = 'Day %{x}<br>Price: $%{y:.2f}<extra></extra>'))
+        
+        # Add current price reference line
+        fig.add_hline(y=last_price, line_dash="dash", line_color="green", 
+                     annotation_text=f"Current Price: ${last_price:.2f}",
+                     annotation_position="right")
                 
-        # Layout setting
-        fig.update_layout(title = f"{saved_sims} Monte Carlo Simulations Scenarios",
-                          xaxis_title = "Trading Days into Future",
-                          yaxis_title = "Price (USD)",
-                          xaxis = dict(range = [0, saved_horizon]),
-                          hovermode = "x unified")
+        # Layout setting with better styling
+        fig.update_layout(
+            title = dict(
+                text = f"📈 {saved_sims} Monte Carlo Simulation Scenarios for {saved_ticker}",
+                font = dict(size = 18)
+            ),
+            xaxis_title = "Trading Days into Future",
+            yaxis_title = "Price (USD)",
+            xaxis = dict(range = [0, saved_horizon]),
+            hovermode = "x unified",
+            template = "plotly_white",
+            height = 500,
+            showlegend = True,
+            legend = dict(
+                yanchor="top",
+                y=0.99,
+                xanchor="left",
+                x=0.01
+            )
+        )
 
         # Render
         st.plotly_chart(fig, use_container_width = True)
@@ -396,8 +519,8 @@ if page == "Stock Price Forecaster":
 
         # --- Statistical Analysis ---
         st.divider()
-        st.subheader("Risk Analysis")
-                
+        st.subheader("📊 Risk Analysis & Forecast Summary")
+        
         # ROI Calculation
         expected_pct = (expected_price - last_price) / last_price * 100
         median_pct = (median_price   - last_price) / last_price * 100
@@ -407,62 +530,88 @@ if page == "Stock Price Forecaster":
         # Setup Layout (2 Columns by 2 Rows)
         col1, col2 = st.columns(2)
 
-        # Display Metrics
-        col1.metric("Expected Price (Average)", 
+        # Display Metrics with color-coded deltas
+        col1.metric("📈 Expected Price (Average)", 
                     f"${expected_price:.2f}", 
-                    f"{expected_pct:+.2f}%")
+                    f"{expected_pct:+.2f}%",
+                    delta_color = "normal" if expected_pct >= 0 else "inverse")
 
-        col2.metric("Median Price (50th Percentile)",
+        col2.metric("📊 Median Price (50th Percentile)",
                     f"${median_price:.2f}", 
-                    f"{median_pct:+.2f}%")
+                    f"{median_pct:+.2f}%",
+                    delta_color = "normal" if median_pct >= 0 else "inverse")
 
         col3, col4 = st.columns(2)
                 
-        col3.metric("Value at Risk (95% Confidence)",
+        col3.metric("⚠️ Value at Risk (95% Confidence)",
                     f"${worst_case:.2f}", 
                     f"{worst_pct:+.2f}%",
+                    delta_color = "inverse",
                     help = "5th Percentile outcome. Indicates a 95% probability that price remains above this level.")
-
-        col4.metric("CVaR / Expected Shortfall (95%)",
+                
+        col4.metric("🔻 CVaR / Expected Shortfall (95%)",
                     f"${cvar_95:.2f}",
                     f"{cvar_pct:+.2f}%",
+                    delta_color = "inverse",
                     help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
-                
-        st.metric("Probability of Loss",
-                  f"{prob_loss*100:.1f}%",
-                  help = "Share of simulations where the terminal price finishes below the current price.")
+        
+        # Probability of Loss with visual indicator
+        prob_loss_pct = prob_loss*100
+        loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
+        
+        col5, col6 = st.columns([2, 1])
+        with col5:
+            st.metric(f"{loss_color} Probability of Loss",
+                      f"{prob_loss_pct:.1f}%",
+                      help = "Share of simulations where the terminal price finishes below the current price.")
+        with col6:
+            if prob_loss_pct < 30:
+                st.success("✅ Low risk of loss")
+            elif prob_loss_pct < 50:
+                st.warning("⚠️ Moderate risk of loss")
+            else:
+                st.error("🔴 High risk of loss")
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
 # ==========================================
 
-elif page == "Portfolio Optimizer":
-    st.header("Efficient Frontier (Modern Portfolio Theory)")
+elif page == "⚖️ Portfolio Optimizer":
+    st.header("⚖️ Efficient Frontier (Modern Portfolio Theory)")
+    st.markdown("**Optimize your portfolio allocation to maximize returns while minimizing risk**")
     
     # --- Sidebar Settings ---  
-    st.sidebar.header("Optimization Settings")
+    st.sidebar.header("⚙️ Optimization Settings")
+    
+    with st.sidebar.expander("💡 Quick Tips", expanded=False):
+        st.markdown("""
+        - **Diversification**: Mix stocks from different sectors/regions
+        - **Popular ETFs**: VTI (US), VEA (International), VNQ (Real Estate), BND (Bonds)
+        - **Risk-Free Rate**: Current ~3-5% (US Treasury rate)
+        - **More Simulations**: Better accuracy but slower
+        """)
     
     num_portfolios = st.sidebar.slider("Number of Simulations", 
-                                       1000, 10000, 5000,
-                                       help = "Higher simulations produce a more accurate Efficient Frontier.")
-
+                                       MIN_NUM_PORTFOLIOS, MAX_NUM_PORTFOLIOS, DEFAULT_NUM_PORTFOLIOS,
+                                       help = "Higher simulations produce a more accurate Efficient Frontier. Recommended: 3000-5000 for balance")
+    
     # Risk-Free Rate Input
     risk_free_rate_input = st.sidebar.number_input("Risk-Free Rate (%)",
-                                                   value = 3.0,
-                                                   min_value = 0.0,
-                                                   max_value = 10.0,
+                                                   value = DEFAULT_RISK_FREE_RATE,
+                                                   min_value = MIN_RISK_FREE_RATE,
+                                                   max_value = MAX_RISK_FREE_RATE,
                                                    step = 0.1,
-                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill).")
+                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill). Typical: 3-5%")
     
     # Convert to decimal
     risk_free_rate = risk_free_rate_input / 100
 
     seed = st.sidebar.number_input("Random Seed", 
-                                   value = 42, 
+                                   value = DEFAULT_RANDOM_SEED, 
                                    min_value = 0,
                                    step = 1,
                                    format = "%d",
-                                   help = "Fix the random numbers for reproducible results.")
+                                   help = "Fix the random numbers for reproducible results. Change to get different optimization results.")
 
     # --- Input Section ---  
     col_input, col_btn = st.columns([4, 1]) 
@@ -470,15 +619,19 @@ elif page == "Portfolio Optimizer":
     with col_input:
         tickers_input = st.text_area("Enter Stock Tickers (Comma Separated)", 
                                      value = "VTI, VEA, VNQ",
-                                     help = "Please enter at least 2 tickers to analyze diversification effects.")
+                                     placeholder="e.g., VTI, VEA, VNQ, BND",
+                                     help = "Enter at least 2 tickers separated by commas. Mix different asset classes for better diversification (e.g., stocks, bonds, real estate).")
         
         tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
         tickers = list(set(tickers))
+        
+        if len(tickers) > 0:
+            st.caption(f"📋 Detected {len(tickers)} unique ticker(s): {', '.join(tickers)}")
 
     with col_btn:
         st.write("") 
         st.write("") 
-        start_opt = st.button("Optimize", 
+        start_opt = st.button("🚀 Optimize", 
                               type = "primary", 
                               use_container_width = True)
 
@@ -488,13 +641,14 @@ elif page == "Portfolio Optimizer":
         # --- 1. Early Validation ---
         # Check before making API calls to save time
         if len(tickers) < 2:
-            st.error("Error: At least 2 valid tickers are required for portfolio optimization.")
+            st.error("❌ **At least 2 valid tickers are required for portfolio optimization.**")
+            st.info("💡 **Tip:** Enter multiple tickers separated by commas (e.g., VTI, VEA, VNQ)")
             st.stop()
             
-        with st.spinner('Calculating Efficient Frontier...'):
+        with st.spinner('🔄 Calculating Efficient Frontier... This may take 10-30 seconds.'):
             np.random.seed(int(round(seed)))
-            # Fetch data for 3 years to calculate correlation matrix
-            raw_data = get_stock_data(tickers, period = "3y")
+            # Fetch data for specified period to calculate correlation matrix
+            raw_data = get_stock_data(tickers, period = OPTIMIZER_DATA_PERIOD)
 
             # Check if API returned any data
             if raw_data is None or raw_data.empty:
@@ -563,8 +717,10 @@ elif page == "Portfolio Optimizer":
                 sim_variances = np.einsum('ij,jk,ik->i', weights, cov_matrix, weights)
                 sim_stds = np.sqrt(sim_variances)
 
-                # 4. Compute Sharpe Ratios
-                sim_sharpes = (sim_returns - risk_free_rate) / sim_stds
+                # 4. Compute Sharpe Ratios (with protection against division by zero)
+                # Avoid division by zero for portfolios with zero volatility
+                sim_stds_safe = np.where(sim_stds > MIN_VOLATILITY_FOR_SHARPE, sim_stds, MIN_VOLATILITY_FOR_SHARPE)
+                sim_sharpes = (sim_returns - risk_free_rate) / sim_stds_safe
 
                 # Stack results: [Returns, Volatility, Sharpe]
                 results = np.vstack([sim_returns, sim_stds, sim_sharpes])
@@ -577,6 +733,11 @@ elif page == "Portfolio Optimizer":
                                                    'tickers': data.columns,
                                                    'returns': returns,
                                                    'rf_rate': risk_free_rate}
+                
+                # Success message
+                optimal_sharpe = (opt_ret - risk_free_rate) / opt_std
+                st.success(f"✅ **Optimization completed!** Analyzed {num_portfolios} portfolio combinations. Optimal Sharpe Ratio: {optimal_sharpe:.2f}")
+                st.balloons()
 
     if 'mpt_results' in st.session_state:
         
@@ -615,14 +776,21 @@ elif page == "Portfolio Optimizer":
                                                            width = 1)),
                                  name='Max Sharpe (Optimal)'))
 
-        fig.update_layout(title = f"Risk vs. Return Analysis (Risk-Free Rate: {saved_rf*100:.1f}%)",
-                          xaxis_title = "Volatility (Annualized Std Dev)",
-                          yaxis_title = "Expected Annual Return",
-                          template = "plotly_dark",
-                          height = 600,
-                          legend = dict(yanchor = "top", y = 0.99,
-                                        xanchor = "left", x = 0.01,
-                                        bgcolor = "rgba(0,0,0,0.5)"))
+        optimal_sharpe = (opt_ret - saved_rf) / opt_std
+        fig.update_layout(
+            title = dict(
+                text = f"📊 Risk vs. Return Analysis (Risk-Free Rate: {saved_rf*100:.1f}%) | Optimal Sharpe: {optimal_sharpe:.2f}",
+                font = dict(size = 16)
+            ),
+            xaxis_title = "Volatility (Annualized Std Dev)",
+            yaxis_title = "Expected Annual Return",
+            template = "plotly_white",
+            height = 600,
+            legend = dict(yanchor = "top", y = 0.99,
+                        xanchor = "left", x = 0.01,
+                        bgcolor = "rgba(255,255,255,0.8)",
+                        bordercolor = "gray",
+                        borderwidth = 1))
                 
         st.plotly_chart(fig, use_container_width = True)
                     
@@ -675,7 +843,7 @@ elif page == "Portfolio Optimizer":
                 
         # 1. Calculate Correlation Matrix
         corr_matrix = returns.corr()
-        threshold = 0.90 
+        threshold = HIGH_CORRELATION_THRESHOLD 
 
         # 2. Optimized Logic: Masking & Stacking
         # Create a mask for the upper triangle (k = 1 excludes the diagonal)
@@ -721,29 +889,64 @@ elif page == "Portfolio Optimizer":
                 st.markdown(f"- **{ticker1}** & **{ticker2}**: {score:.2f} ({relation})")
 
         # --- Final Allocation Output ---
-        st.subheader("Optimal Asset Allocation")
+        st.divider()
+        st.subheader("💼 Optimal Asset Allocation")
+        
+        # Calculate optimal portfolio metrics
+        optimal_sharpe = (opt_ret - saved_rf) / opt_std
+        optimal_return_pct = opt_ret * 100
+        optimal_vol_pct = opt_std * 100
+        
+        # Display key metrics
+        col_met1, col_met2, col_met3 = st.columns(3)
+        col_met1.metric("📈 Expected Return", f"{optimal_return_pct:.2f}%")
+        col_met2.metric("📊 Volatility", f"{optimal_vol_pct:.2f}%")
+        col_met3.metric("⭐ Sharpe Ratio", f"{optimal_sharpe:.2f}")
                     
         allocation_df = pd.DataFrame({"Ticker": cols, "Weight": opt_weights})
         allocation_df = allocation_df.sort_values(by = "Weight", ascending = False)
         allocation_df['Weight'] = allocation_df['Weight'].apply(lambda x: f"{x*100:.2f}%")
-                    
-        st.table(allocation_df.set_index('Ticker'))
+        
+        # Add visual bars for weights
+        st.markdown("**Allocation Breakdown:**")
+        st.dataframe(allocation_df.set_index('Ticker'), use_container_width=True)
+        
+        # Interpretation
+        max_weight_ticker = allocation_df.index[0]
+        max_weight = float(allocation_df.iloc[0]['Weight'].replace('%', ''))
+        if max_weight > 50:
+            st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({allocation_df.iloc[0]['Weight']}). Consider if this matches your risk tolerance.")
 
 # ==========================================
 # MODULE 3: PORTFOLIO REBALANCER
 # ==========================================
 
-elif page == "Portfolio Rebalancer":
-    st.header("Portfolio Rebalancing Assistant")
-    st.caption("Calculate trades to align your portfolio with target allocations.")
+elif page == "🔄 Portfolio Rebalancer":
+    st.header("🔄 Portfolio Rebalancing Assistant")
+    st.markdown("**Calculate trades needed to align your portfolio with target allocations**")
 
     # --- 1. Global Inputs (Cash) ---
-    # Scheme B: Independent Cash Input
-    current_cash = st.number_input("Current Cash Balance ($)", 
+    with st.expander("💡 How to use the Rebalancer", expanded=False):
+        st.markdown("""
+        1. **Enter your current cash balance** (uninvested money)
+        2. **Add your current holdings** (ticker, number of shares, target %)
+        3. **Click Calculate** to see the rebalancing plan
+        4. **Review the trades** needed to reach your target allocation
+        """)
+    
+    # Initialize or retrieve cash from session state
+    if 'rebalance_cash' not in st.session_state:
+        st.session_state['rebalance_cash'] = DEFAULT_CASH_BALANCE
+    
+    current_cash = st.number_input("💰 Current Cash Balance ($)", 
                                    min_value = 0.0, 
-                                   value = 10000.0, 
+                                   value = st.session_state['rebalance_cash'], 
                                    step = 100.0,
-                                   help = "Enter the amount of uninvested cash you currently hold.")
+                                   help = "Enter the amount of uninvested cash you currently hold. This will be used to purchase additional shares.",
+                                   key = "cash_input")
+    
+    # Save cash to session state
+    st.session_state['rebalance_cash'] = current_cash
 
     st.divider()
 
@@ -751,7 +954,7 @@ elif page == "Portfolio Rebalancer":
 
     # --- 2. Input Section (Left) ---
     with col_input:
-        st.subheader("Current Holdings")
+        st.subheader("📋 Current Holdings")
         
         # Initialize default data structure for the editor
         if 'rebalance_data' not in st.session_state:
@@ -777,29 +980,42 @@ elif page == "Portfolio Rebalancer":
 
         # Action Button
         st.write("")
-        calculate_btn = st.button("Calculate Rebalancing", type = "primary", use_container_width = True)
+        calculate_btn = st.button("🚀 Calculate Rebalancing", type = "primary", use_container_width = True)
+        
+        # Show total target allocation
+        if 'rebalance_data' in st.session_state:
+            total_target = st.session_state['rebalance_data']['Target (%)'].sum()
+            if total_target > 0:
+                if total_target > 100.1:
+                    st.error(f"⚠️ Total allocation: {total_target:.1f}% (exceeds 100%)")
+                elif total_target < 99.9:
+                    st.warning(f"ℹ️ Total allocation: {total_target:.1f}% (less than 100%)")
+                else:
+                    st.success(f"✅ Total allocation: {total_target:.1f}%")
 
     # --- 3. Calculation Logic & Output (Right) ---
     with col_output:
-        st.subheader("Rebalancing Plan")
+        st.subheader("📊 Rebalancing Plan")
 
         if calculate_btn:
             # A. Validation
             valid_rows = input_df[input_df['Ticker'].notna() & (input_df['Ticker'] != "")]
             
             if valid_rows.empty:
-                st.warning("Please enter at least one valid ticker.")
+                st.warning("⚠️ **Please enter at least one valid ticker.**")
+                st.info("💡 **Tip:** Add rows using the + button and enter ticker symbols (e.g., VTI, AAPL)")
             
-            elif valid_rows['Target (%)'].sum() > 100.1: # Allow small float error
-                st.error(f"Total Target Allocation ({valid_rows['Target (%)'].sum():.1f}%) exceeds 100%. Please adjust.")
+            elif valid_rows['Target (%)'].sum() > 100.0 + ALLOCATION_TOLERANCE: # Allow small float error
+                st.error(f"❌ **Total Target Allocation ({valid_rows['Target (%)'].sum():.1f}%) exceeds 100%.**")
+                st.info("💡 **Tip:** Reduce target percentages so they sum to 100% or less")
             
             else:
                 with st.spinner("Fetching latest prices..."):
                     
                     # B. Fetch Data
                     tickers = valid_rows['Ticker'].str.upper().tolist()
-                    # Fetch 5 days to ensure we get the last closing price even on weekends/holidays
-                    market_data = get_stock_data(tickers, period = "5d") 
+                    # Fetch recent days to ensure we get the last closing price even on weekends/holidays
+                    market_data = get_stock_data(tickers, period = REBALANCER_DATA_PERIOD) 
 
                     if market_data is None or market_data.empty:
                         st.error("Failed to fetch stock data. Please check your tickers.")
@@ -816,87 +1032,160 @@ elif page == "Portfolio Rebalancer":
                                 last_prices = price_data.iloc[-1]
                                 current_prices = last_prices.to_dict()
 
-                            # C. Core Math (Rebalancing)
-                            results = []
-                            total_equity = current_cash
-                            
-                            # 1. Calculate Total Portfolio Value first
-                            for index, row in valid_rows.iterrows():
-                                ticker = row['Ticker'].upper()
-                                shares = row['Shares']
-                                price = current_prices.get(ticker, 0.0)
+                                # C. Core Math (Rebalancing)
+                                results = []
+                                total_equity = current_cash
                                 
-                                if price == 0.0:
-                                    st.warning(f"Could not find price for {ticker}. Skipping.")
-                                    continue
+                                # 1. Calculate Total Portfolio Value first
+                                for index, row in valid_rows.iterrows():
+                                    ticker = row['Ticker'].upper()
+                                    shares = row['Shares']
+                                    price = current_prices.get(ticker, 0.0)
+                                    
+                                    if price == 0.0:
+                                        st.warning(f"Could not find price for {ticker}. Skipping.")
+                                        continue
+                                    
+                                    position_value = shares * price
+                                    total_equity += position_value
                                 
-                                position_value = shares * price
-                                total_equity += position_value
-                            
-                            # 2. Calculate New Allocation
-                            projected_cash = total_equity # Start with total, subtract as we 'buy'
-                            
-                            for index, row in valid_rows.iterrows():
-                                ticker = row['Ticker'].upper()
-                                current_shares = row['Shares']
-                                target_pct = row['Target (%)'] / 100.0
-                                price = current_prices.get(ticker, 0)
-                                
-                                if price > 0:
-                                    # Target Value for this stock
-                                    target_value = total_equity * target_pct
+                                # Validate total equity is greater than zero
+                                if total_equity <= 0:
+                                    st.error("❌ **Error: Total portfolio value is zero or negative.** Please check your cash balance and stock prices.")
+                                else:
+                                    # 2. Calculate New Allocation
+                                    projected_cash = total_equity # Start with total, subtract as we 'buy'
                                     
-                                    # Calculate New Shares (Floor division to avoid fractional shares)
-                                    new_shares = int(np.floor(target_value / price))
-                                    
-                                    # Calculate Trades
-                                    trade_shares = new_shares - current_shares
-                                    
-                                    # Final Value for this stock
-                                    final_value = new_shares * price
-                                    projected_cash -= final_value # Deduct cost from total pool
-                                    
-                                    # Actual achieved weight (may differ slightly due to rounding)
-                                    actual_weight = (final_value / total_equity) * 100
-                                    
-                                    results.append({
-                                        "Ticker": ticker,
-                                        "New Shares": new_shares,
-                                        "Trade (+/-)": trade_shares, # Key output
-                                        "Value ($)": final_value,
-                                        "Actual %": actual_weight
-                                    })
+                                    for index, row in valid_rows.iterrows():
+                                        ticker = row['Ticker'].upper()
+                                        current_shares = row['Shares']
+                                        target_pct = row['Target (%)'] / 100.0
+                                        price = current_prices.get(ticker, 0)
+                                        
+                                        if price > 0:
+                                            # Target Value for this stock
+                                            target_value = total_equity * target_pct
+                                            
+                                            # Calculate New Shares (Floor division to avoid fractional shares)
+                                            new_shares = int(np.floor(target_value / price))
+                                            
+                                            # Calculate Trades
+                                            trade_shares = new_shares - current_shares
+                                            
+                                            # Final Value for this stock
+                                            final_value = new_shares * price
+                                            projected_cash -= final_value # Deduct cost from total pool
+                                            
+                                            # Actual achieved weight (may differ slightly due to rounding)
+                                            actual_weight = (final_value / total_equity) * 100
+                                            
+                                            results.append({
+                                                "Ticker": ticker,
+                                                "New Shares": new_shares,
+                                                "Trade (+/-)": trade_shares, # Key output
+                                                "Value ($)": final_value,
+                                                "Actual %": actual_weight
+                                            })
 
-                            # D. Construct Results DataFrame
-                            res_df = pd.DataFrame(results)
-                            
-                            # Formatting for display
-                            display_df = res_df.copy()
-                            display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
-                            display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
-                            display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
+                                    # D. Construct Results DataFrame
+                                    res_df = pd.DataFrame(results)
+                                    
+                                    # --- SAVE TO SESSION STATE ---
+                                    st.session_state['rebalance_results'] = {
+                                        'results_df': res_df,
+                                        'total_equity': total_equity,
+                                        'projected_cash': projected_cash,
+                                        'current_prices': current_prices,
+                                        'current_cash': current_cash
+                                    }
+                                    
+                                    # Formatting for display
+                                    display_df = res_df.copy()
+                                    display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
+                                    display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
+                                    display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
 
-                            # Show Main Table
-                            st.dataframe(display_df, hide_index = True, use_container_width = True)
+                                    # Success message
+                                    st.success("✅ **Rebalancing plan calculated successfully!**")
+                                    
+                                    # Show Main Table
+                                    st.markdown("**📋 Required Trades:**")
+                                    st.dataframe(display_df, hide_index = True, use_container_width = True)
 
-                            # Show Cash Summary
-                            # The remaining cash after buying integer shares
-                            cash_pct = (projected_cash / total_equity) * 100
-                            
-                            st.info(f"""
-                                    **Result Summary:**
-                                    - **Total Portfolio Value:** ${total_equity:,.2f}
-                                    - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
-                                    """)
+                                    # Show Cash Summary
+                                    # The remaining cash after buying integer shares
+                                    cash_pct = (projected_cash / total_equity) * 100
+                                    
+                                    st.info(f"""
+                                            **💰 Portfolio Summary:**
+                                            - **Total Portfolio Value:** ${total_equity:,.2f}
+                                            - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
+                                            """)
 
-                            if projected_cash < 0:
-                                st.error("Warning: Negative cash balance! Please reduce target percentages or add cash.")
+                                    if projected_cash < 0:
+                                        st.error("❌ **Warning: Negative cash balance!** Please reduce target percentages or add more cash.")
+                                    elif cash_pct > MAX_CASH_PERCENTAGE_WARNING:
+                                        st.warning(f"ℹ️ **Note:** {cash_pct:.1f}% of portfolio remains in cash due to integer share constraints.")
 
                         except Exception as e:
                             st.error(f"An error occurred during calculation: {e}")
 
+        # Display saved results if they exist (when user returns to this module)
+        elif 'rebalance_results' in st.session_state:
+            try:
+                saved_results = st.session_state['rebalance_results']
+                res_df = saved_results.get('results_df')
+                total_equity = saved_results.get('total_equity')
+                projected_cash = saved_results.get('projected_cash')
+                
+                # Validate that all required keys exist
+                if res_df is None or total_equity is None or projected_cash is None:
+                    raise KeyError("Missing required keys in saved results")
+                
+                # Formatting for display
+                display_df = res_df.copy()
+                display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
+                display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
+                display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
+                
+                st.info("💾 **Displaying previously calculated rebalancing plan.** Click Calculate Rebalancing to recalculate with current data.")
+                
+                # Show Main Table
+                st.markdown("**📋 Required Trades:**")
+                st.dataframe(display_df, hide_index = True, use_container_width = True)
+
+                # Show Cash Summary (with validation)
+                if total_equity > 0:
+                    cash_pct = (projected_cash / total_equity) * 100
+                    
+                    st.info(f"""
+                            **💰 Portfolio Summary:**
+                            - **Total Portfolio Value:** ${total_equity:,.2f}
+                            - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
+                            """)
+                    
+                    if projected_cash < 0:
+                        st.error("❌ **Warning: Negative cash balance!** Please reduce target percentages or add more cash.")
+                    elif cash_pct > MAX_CASH_PERCENTAGE_WARNING:
+                        st.warning(f"ℹ️ **Note:** {cash_pct:.1f}% of portfolio remains in cash due to integer share constraints.")
+                else:
+                    st.error("❌ **Error: Invalid portfolio value in saved results.**")
+            except (KeyError, AttributeError, TypeError) as e:
+                st.error(f"❌ **Error loading saved results:** {str(e)}")
+                st.info("💡 **Tip:** Please recalculate your rebalancing plan.")
+                # Clear corrupted session state
+                if 'rebalance_results' in st.session_state:
+                    del st.session_state['rebalance_results']
+
         else:
-            st.info("👈 Enter your holdings and targets on the left, then click Calculate.")
+            st.info("👈 **Enter your holdings and targets on the left, then click Calculate Rebalancing.**")
+            st.markdown("""
+            **Quick Start:**
+            - Enter your current cash balance above
+            - Add your stock holdings (ticker, shares, target %)
+            - Make sure target percentages sum to 100%
+            - Click Calculate to see your rebalancing plan
+            """)
 
 # ==========================================
 #  Footer & Disclaimer 

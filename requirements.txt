@@ -1,6 +1,7 @@
-streamlit
-numpy
-pandas
-plotly
-scipy
-yfinance
+# Core dependencies with version pinning for deployment stability
+streamlit>=1.28.0
+numpy>=1.24.0
+pandas>=2.0.0
+plotly>=5.17.0
+scipy>=1.11.0
+yfinance>=0.2.28
