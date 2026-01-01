@@ -855,11 +855,15 @@ elif page == "🔄 Portfolio Rebalancer":
                                 if 'error' in plan:
                                     st.error(f"❌ **Error:** {plan['error']}")
                                 else:
+                                    res_df = plan['results_df']
+                                    total_equity = plan['total_equity']
+                                    projected_cash = plan['projected_cash']
+
                                     # --- SAVE TO SESSION STATE ---
                                     st.session_state['rebalance_results'] = {
-                                        'results_df': plan['results_df'],
-                                        'total_equity': plan['total_equity'],
-                                        'projected_cash': plan['projected_cash'],
+                                        'results_df': res_df,
+                                        'total_equity': total_equity,
+                                        'projected_cash': projected_cash,
                                         'current_prices': current_prices,
                                         'current_cash': current_cash
                                     }
