@@ -11,9 +11,10 @@ Year: 2025
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go 
-import scipy.optimize as sco 
+ 
 import streamlit as st
 import yfinance as yf
+import utils
 
 # ==========================================
 # Configuration Constants
@@ -121,108 +122,7 @@ st.markdown("---")
 # Load Data Using Yahoo Finance API
 # ==========================================
 
-@st.cache_data(ttl = CACHE_TTL_SECONDS)
-def get_stock_data(tickers, period):
-    """
-    Fetches historical stock data from Yahoo Finance for a single ticker or a list of tickers.
-    
-    Optimized to use yf.download() consistently for both single and multiple tickers,
-    which is more efficient and returns consistent data structures.
 
-    Args:
-        tickers (str or list[str]): A single ticker symbol (e.g., "AAPL") or a list of symbols (e.g., ["AAPL", "GOOG"]).
-        period (str): The historical period to download (e.g., "1y", "3y", "max").
-
-    Returns:
-        pd.DataFrame or None: A pandas DataFrame containing historical stock data (Open, High, Low, Close, Volume) if successful; 
-                              None if an API error occurs.
-    """
-    try:
-        # Standardize to list for consistent processing
-        ticker_list = [tickers] if isinstance(tickers, str) else tickers
-        
-        # Use yf.download() for both single and multiple tickers (more efficient and consistent)
-        # This returns MultiIndex columns for both single and multiple tickers
-        data = yf.download(ticker_list, period=period, ignore_tz=True, progress=False)
-        
-        # Handle empty or invalid data
-        if data is None or data.empty:
-            return None
-        
-        # Return raw data - let extract_price_data() handle column extraction consistently
-        return data
-            
-    except Exception as e:
-        st.error(f"Error fetching stock data: {str(e)}")
-        return None
-
-
-@st.cache_data(ttl = CACHE_TTL_SECONDS)
-def get_stock_info(ticker):
-    """
-    Fetches stock information (company name, etc.) from Yahoo Finance.
-    
-    Cached to avoid redundant API calls when the same ticker is requested multiple times.
-
-    Args:
-        ticker (str): A single ticker symbol (e.g., "AAPL").
-
-    Returns:
-        dict or None: Stock information dictionary if successful; None if an API error occurs.
-    """
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        return info if info else None
-    except Exception as e:
-        # Silently fail - info is optional, not critical for functionality
-        return None
-
-
-def extract_price_data(raw_data, prefer_adj_close=True):
-    """
-    Extracts price data from raw Yahoo Finance data, handling both single and multi-ticker formats.
-    
-    Args:
-        raw_data (pd.DataFrame): Raw data from get_stock_data()
-        prefer_adj_close (bool): If True, prefer 'Adj Close' over 'Close'
-    
-    Returns:
-        pd.DataFrame: DataFrame with price data (one column per ticker)
-    """
-    if raw_data is None or raw_data.empty:
-        return None
-    
-    # Handle MultiIndex columns (from batch downloads)
-    if isinstance(raw_data.columns, pd.MultiIndex):
-        # Extract price column (prefer Adj Close)
-        price_col = 'Adj Close' if prefer_adj_close else 'Close'
-        if price_col in raw_data.columns.get_level_values(0):
-            data = raw_data[price_col]
-            # Flatten column names to just ticker symbols
-            if isinstance(data.columns, pd.MultiIndex):
-                data.columns = data.columns.get_level_values(1)
-        else:
-            # Fallback to 'Close' if 'Adj Close' not available
-            price_col = 'Close'
-            if price_col in raw_data.columns.get_level_values(0):
-                data = raw_data[price_col]
-                if isinstance(data.columns, pd.MultiIndex):
-                    data.columns = data.columns.get_level_values(1)
-            else:
-                return None
-    else:
-        # Single ticker or already flattened
-        price_col = 'Adj Close' if (prefer_adj_close and 'Adj Close' in raw_data.columns) else 'Close'
-        if price_col in raw_data.columns:
-            data = raw_data[[price_col]]  # Keep as DataFrame
-        else:
-            return None
-    
-    # Drop columns that are entirely NaN (invalid tickers)
-    data = data.dropna(axis=1, how='all')
-    
-    return data if not data.empty else None
 
 # ==========================================
 # MODULE 1: STOCK PRICE FORECASTER
@@ -282,7 +182,7 @@ if page == "📈 Stock Price Forecaster":
             ticker = ticker.strip().upper()
             with st.spinner('🔄 Running Monte Carlo Simulation... This may take a few seconds.'):
                 np.random.seed(int(round(seed)))
-                stock_data = get_stock_data(ticker, period = DEFAULT_DATA_PERIOD)
+                stock_data = utils.get_stock_data(ticker, period = DEFAULT_DATA_PERIOD)
 
                 if stock_data is None or stock_data.empty:
                     st.error(f"❌ **Ticker '{ticker}' not found or API unavailable.**")
@@ -295,11 +195,11 @@ if page == "📈 Stock Price Forecaster":
                     
                 else:
                     # Fetch full name using cached function
-                    stock_info = get_stock_info(ticker)
+                    stock_info = utils.get_stock_info(ticker)
                     stock_name = stock_info.get('longName', ticker) if stock_info else ticker
 
                     # Data Preprocessing using helper function
-                    price_data = extract_price_data(stock_data, prefer_adj_close=True)
+                    price_data = utils.extract_price_data(stock_data, prefer_adj_close=True)
                     
                     if price_data is None or price_data.empty:
                         st.error(f"Data Error: Closing price is missing for {ticker}.")
@@ -325,73 +225,24 @@ if page == "📈 Stock Price Forecaster":
                     sigma = log_returns.std()
                     
                     # --- Vectorized Monte Carlo Simulation (GBM) ---
-                    # 1. Pre-compute random shocks (Brownian Motion component)
-                    # Shape: (time_horizon, simulations)
-                    shocks = np.random.normal(0, 1, (time_horizon, simulations))
-                
-                    # 2. Compute Daily Returns using Geometric Brownian Motion formula
-                    drift = mu - 0.5 * sigma**2
-                    daily_returns = np.exp(drift + sigma * shocks)
-                
-                    # 3. Aggregate into Price Paths
-                    # Initialize starting point with 1s to apply last_price scaling later
-                    price_paths = np.vstack([np.ones((1, simulations)), daily_returns])
-                    price_paths = last_price * price_paths.cumprod(axis = 0)
-
-                    # Compute Key Metrics directly from numpy array (memory efficient)
-                    end_prices = price_paths[-1, :]  # Last row contains all terminal prices
-
-                    # Center tendency
-                    expected_price = float(np.mean(end_prices))
-                    median_price = float(np.median(end_prices))
-                    
-                    # For worst case, we use VaR at specified confidence level              
-                    worst_case = float(np.percentile(end_prices, VAR_CONFIDENCE_LEVEL * 100))
-
-                    # CVaR / Expected Shortfall (average of worst 5%)
-                    tail = end_prices[end_prices <= worst_case]
-                    cvar_95 = float(np.mean(tail)) if len(tail) > 0 else worst_case  # fallback safeguard
-                    
-                    # Probability of Loss
-                    prob_loss = float(np.mean(end_prices < last_price))  # 0~1
-                    
-                    # Optimization: Only create DataFrame for visualization subset
-                    # This reduces memory usage by ~95% when running 1000 simulations
-                    columns_to_store = min(simulations, MAX_LINES_TO_PLOT)
-                    
-                    # Find the worst scenario index to ensure it's included in the plot
-                    worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
-                    
-                    # Select columns to store: first N columns + worst scenario if not already included
-                    columns_indices = list(range(columns_to_store))
-                    if worst_scenario_idx not in columns_indices and worst_scenario_idx < simulations:
-                        # Replace last column with worst scenario if it's not in the first N
-                        columns_indices[-1] = worst_scenario_idx
-                    
-                    # Compute mean path from full array for accurate visualization
-                    mean_path_full = np.mean(price_paths, axis=1)
-                    
-                    # Create DataFrame with only the subset needed for visualization + mean path
-                    subset_data = np.column_stack([price_paths[:, columns_indices], mean_path_full])
-                    subset_columns = [f"Sim_{i}" for i in columns_indices] + ['Mean']
-                    simulation_df = pd.DataFrame(subset_data, 
-                                                columns = subset_columns,
-                                                index = range(len(price_paths)))
+                    sim_results = utils.run_monte_carlo_simulation(last_price, log_returns, time_horizon, simulations)
 
                     # --- SAVE TO SESSION STATE ---
-                    st.session_state['forecast_results'] = {'simulation_df': simulation_df,
-                                                            'last_price': last_price,
-                                                            'stock_name': stock_name,      
-                                                            'price_change': price_change,  
-                                                            'pct_change': pct_change,    
-                                                            'expected_price': expected_price,
-                                                            'median_price': median_price,
-                                                            'worst_case': worst_case,
-                                                            'cvar_95': cvar_95,
-                                                            'prob_loss': prob_loss,
-                                                            'ticker': ticker,
-                                                            'time_horizon': time_horizon, 
-                                                            'simulations': simulations}
+                    st.session_state['forecast_results'] = {
+                        'simulation_df': sim_results['simulation_df'],
+                        'last_price': last_price,
+                        'stock_name': stock_name,      
+                        'price_change': price_change,  
+                        'pct_change': pct_change,    
+                        'expected_price': sim_results['expected_price'],
+                        'median_price': sim_results['median_price'],
+                        'worst_case': sim_results['worst_case'],
+                        'cvar_95': sim_results['cvar_95'],
+                        'prob_loss': sim_results['prob_loss'],
+                        'ticker': ticker,
+                        'time_horizon': time_horizon, 
+                        'simulations': simulations
+                    }
                     
                     # Success message
                     st.success(f"✅ **Simulation completed successfully!** Analyzed {simulations} scenarios for {ticker} over {time_horizon} trading days.")
@@ -654,7 +505,7 @@ elif page == "⚖️ Portfolio Optimizer":
         with st.spinner('🔄 Calculating Efficient Frontier... This may take 10-30 seconds.'):
             np.random.seed(int(round(seed)))
             # Fetch data for specified period to calculate correlation matrix
-            raw_data = get_stock_data(tickers, period = OPTIMIZER_DATA_PERIOD)
+            raw_data = utils.get_stock_data(tickers, period = OPTIMIZER_DATA_PERIOD)
 
             # Check if API returned any data
             if raw_data is None or raw_data.empty:
@@ -664,7 +515,7 @@ elif page == "⚖️ Portfolio Optimizer":
             # --- 2. Data Cleaning & Selection ---
             try:
                 # Use helper function to extract price data consistently
-                data = extract_price_data(raw_data, prefer_adj_close=True)
+                data = utils.extract_price_data(raw_data, prefer_adj_close=True)
                 
                 if data is None:
                     st.error("Data Error: Unable to extract price data from API response.")
@@ -680,68 +531,20 @@ elif page == "⚖️ Portfolio Optimizer":
                 st.stop()
 
             else:
-                # --- MPT Calculations ---
-                returns = data.pct_change()
-                mean_returns = returns.mean() * 252 # Annualized
-                cov_matrix = returns.cov() * 252    # Annualized
-                    
-                # Objective Functions for Scipy Optimize
-                def portfolio_performance(weights, mean_returns, cov_matrix):                        
-                    returns = np.sum(mean_returns * weights)
-                    std = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-                    return returns, std
-
-                def neg_sharpe(weights, mean_returns, cov_matrix, rf_rate):
-                    p_ret, p_std = portfolio_performance(weights, mean_returns, cov_matrix)
-                    return - (p_ret - rf_rate) / p_std
-
-                # SLSQP Optimization for Max Sharpe Ratio
-                num_assets = len(data.columns)
-                constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1}) 
-                bounds = tuple((0, 1) for _ in range(num_assets)) 
-                init_guess = num_assets * [1. / num_assets]
+                # --- MPT Calculations & Simulation ---
+                opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
                 
-                opt_results = sco.minimize(neg_sharpe, init_guess, 
-                                           args = (mean_returns, cov_matrix, risk_free_rate), 
-                                           method = 'SLSQP', 
-                                           bounds = bounds, 
-                                           constraints = constraints)
-                
-                opt_weights = opt_results.x
-                opt_ret, opt_std = portfolio_performance(opt_weights, mean_returns, cov_matrix)
-                    
-                # --- Vectorized Portfolio Simulation ---
-                # 1. Generate random weight matrix (num_portfolios x num_assets)
-                weights = np.random.random((num_portfolios, num_assets))
-                weights /= np.sum(weights, axis = 1)[:, np.newaxis] # Normalize to sum=1
-
-                 # 2. Compute Returns (Dot Product)
-                sim_returns = np.dot(weights, mean_returns)
-
-                # 3. Compute Volatility using Einstein Summation (einsum)
-                # Efficient calculation of diagonal elements of (w @ Sigma @ w.T)
-                sim_variances = np.einsum('ij,jk,ik->i', weights, cov_matrix, weights)
-                sim_stds = np.sqrt(sim_variances)
-
-                # 4. Compute Sharpe Ratios (with protection against division by zero)
-                # Avoid division by zero for portfolios with zero volatility
-                sim_stds_safe = np.where(sim_stds > MIN_VOLATILITY_FOR_SHARPE, sim_stds, MIN_VOLATILITY_FOR_SHARPE)
-                sim_sharpes = (sim_returns - risk_free_rate) / sim_stds_safe
-
-                # Stack results: [Returns, Volatility, Sharpe]
-                results = np.vstack([sim_returns, sim_stds, sim_sharpes])
-
                 # --- SAVE TO SESSION STATE ---
-                st.session_state['mpt_results'] = {'results': results,
-                                                   'opt_std': opt_std,
-                                                   'opt_ret': opt_ret,
-                                                   'opt_weights': opt_weights,
-                                                   'tickers': data.columns,
-                                                   'returns': returns,
+                st.session_state['mpt_results'] = {'results': opt_data['results'],
+                                                   'opt_std': opt_data['opt_std'],
+                                                   'opt_ret': opt_data['opt_ret'],
+                                                   'opt_weights': opt_data['opt_weights'],
+                                                   'tickers': opt_data['tickers'],
+                                                   'returns': opt_data['returns'],
                                                    'rf_rate': risk_free_rate}
                 
                 # Success message
-                optimal_sharpe = (opt_ret - risk_free_rate) / opt_std
+                optimal_sharpe = (opt_data['opt_ret'] - risk_free_rate) / opt_data['opt_std']
                 st.success(f"✅ **Optimization completed!** Analyzed {num_portfolios} portfolio combinations. Optimal Sharpe Ratio: {optimal_sharpe:.2f}")
 
     if 'mpt_results' in st.session_state:
@@ -1023,7 +826,7 @@ elif page == "🔄 Portfolio Rebalancer":
                     # B. Fetch Data
                     tickers = valid_rows['Ticker'].str.upper().tolist()
                     # Fetch recent days to ensure we get the last closing price even on weekends/holidays
-                    market_data = get_stock_data(tickers, period = REBALANCER_DATA_PERIOD) 
+                    market_data = utils.get_stock_data(tickers, period = REBALANCER_DATA_PERIOD) 
 
                     if market_data is None or market_data.empty:
                         st.error("Failed to fetch stock data. Please check your tickers.")
@@ -1031,7 +834,7 @@ elif page == "🔄 Portfolio Rebalancer":
                     else:
                         try:
                             # Use helper function to extract price data consistently
-                            price_data = extract_price_data(market_data, prefer_adj_close=True)
+                            price_data = utils.extract_price_data(market_data, prefer_adj_close=True)
                             
                             if price_data is None or price_data.empty:
                                 st.error("Failed to extract price data. Please check your tickers.")
@@ -1040,70 +843,23 @@ elif page == "🔄 Portfolio Rebalancer":
                                 last_prices = price_data.iloc[-1]
                                 current_prices = last_prices.to_dict()
 
-                                # C. Core Math (Rebalancing)
-                                results = []
-                                total_equity = current_cash
-                                
-                                
-                                # 1. Calculate Total Portfolio Value first
+                                # Optional: Warn for missing prices
                                 for index, row in valid_rows.iterrows():
                                     ticker = row['Ticker'].upper()
-                                    shares = row['Shares']
-                                    price = current_prices.get(ticker, 0.0)
-                                    
-                                    if price == 0.0:
-                                        st.warning(f"Could not find price for {ticker}. Skipping.")
-                                        continue
-                                    
-                                    position_value = shares * price
-                                    total_equity += position_value
-                                
-                                # Validate total equity is greater than zero
-                                if total_equity < -0.01:
-                                    st.error("❌ **Error: Total portfolio value is zero or negative.** Please check your cash balance and stock prices.")
-                                else:
-                                    # 2. Calculate New Allocation
-                                    projected_cash = total_equity # Start with total, subtract as we 'buy'
-                                    
-                                    for index, row in valid_rows.iterrows():
-                                        ticker = row['Ticker'].upper()
-                                        current_shares = row['Shares']
-                                        target_pct = row['Target (%)'] / 100.0
-                                        price = current_prices.get(ticker, 0)
-                                        
-                                        if price > 0:
-                                            # Target Value for this stock
-                                            target_value = total_equity * target_pct
-                                            
-                                            # Calculate New Shares (Floor division to avoid fractional shares)
-                                            new_shares = int(np.floor(target_value / price))
-                                            
-                                            # Calculate Trades
-                                            trade_shares = new_shares - current_shares
-                                            
-                                            # Final Value for this stock
-                                            final_value = new_shares * price
-                                            projected_cash -= final_value # Deduct cost from total pool
-                                            
-                                            # Actual achieved weight (may differ slightly due to rounding)
-                                            actual_weight = (final_value / total_equity) * 100
-                                            
-                                            results.append({
-                                                "Ticker": ticker,
-                                                "New Shares": new_shares,
-                                                "Trade (+/-)": trade_shares, # Key output
-                                                "Value ($)": final_value,
-                                                "Actual %": actual_weight
-                                            })
+                                    if current_prices.get(ticker, 0.0) == 0.0:
+                                         st.warning(f"Could not find price for {ticker}. Skipping in calculation.")
 
-                                    # D. Construct Results DataFrame
-                                    res_df = pd.DataFrame(results)
-                                    
+                                # C. Core Math (Rebalancing)
+                                plan = utils.calculate_rebalancing_plan(current_cash, valid_rows, current_prices)
+                                
+                                if 'error' in plan:
+                                    st.error(f"❌ **Error:** {plan['error']}")
+                                else:
                                     # --- SAVE TO SESSION STATE ---
                                     st.session_state['rebalance_results'] = {
-                                        'results_df': res_df,
-                                        'total_equity': total_equity,
-                                        'projected_cash': projected_cash,
+                                        'results_df': plan['results_df'],
+                                        'total_equity': plan['total_equity'],
+                                        'projected_cash': plan['projected_cash'],
                                         'current_prices': current_prices,
                                         'current_cash': current_cash
                                     }
