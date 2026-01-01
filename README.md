@@ -214,6 +214,7 @@ Potential improvements for future versions:
 - Historical backtesting capabilities
 - Multi-currency support
 - Custom date range selection
+- Implementing Ledoit-Wolf Shrinkage or Black-Litterman to handle estimation errors and multicollinearity.
 
 ---
 

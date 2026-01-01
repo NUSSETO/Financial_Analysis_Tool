@@ -1059,7 +1059,7 @@ elif page == "🔄 Portfolio Rebalancer":
                                     total_equity += position_value
                                 
                                 # Validate total equity is greater than zero
-                                if total_equity <= 0:
+                                if total_equity < -0.01:
                                     st.error("❌ **Error: Total portfolio value is zero or negative.** Please check your cash balance and stock prices.")
                                 else:
                                     # 2. Calculate New Allocation
