@@ -3,6 +3,7 @@
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://financialanalysistool-jasonhuang.streamlit.app)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://github.com/NUSSETO/Financial_Analysis_Tool/actions/workflows/python-app.yml/badge.svg)](https://github.com/NUSSETO/Financial_Analysis_Tool/actions/workflows/python-app.yml)
 
 ## Executive Summary
 
@@ -57,7 +58,7 @@ This project leverages a powerful stack of Python libraries standard in the quan
 
 1.  **Clone the repository**
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/NUSSETO/Financial_Analysis_Tool.git
     cd Financial_Analysis_Tool
     ```
 
