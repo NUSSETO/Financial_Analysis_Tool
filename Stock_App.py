@@ -473,6 +473,13 @@ elif page == "⚖️ Portfolio Optimizer":
                                    format = "%d",
                                    help = "Fix the random numbers for reproducible results. Change to get different optimization results.")
 
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Advanced Options")
+    
+    model_choice = st.sidebar.radio("Optimization Model",
+                                    ["Simple (Markowitz)", "Robust (Ledoit-Wolf + CVXPY)"],
+                                    help = "Simple: Standard Mean-Variance Optimization.\nRobust: Uses Ledoit-Wolf shrinkage for covariance calculation (better for noisy data) and CVXPY for precise convex optimization.")
+
     # --- Input Section ---  
     col_input, col_btn = st.columns([4, 1]) 
     
@@ -532,7 +539,16 @@ elif page == "⚖️ Portfolio Optimizer":
 
             else:
                 # --- MPT Calculations & Simulation ---
-                opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
+                if model_choice == "Simple (Markowitz)":
+                    opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
+                    st.success("✅ **Running Simple Markowitz Optimization...**")
+                else:
+                    opt_data = utils.optimize_portfolio_robust(data.pct_change(), risk_free_rate, num_portfolios)
+                    st.success("✅ **Running Robust Optimization (Ledoit-Wolf + CVXPY)...**")
+
+                if opt_data is None:
+                    st.error("Optimization failed. Please check your data or try different parameters.")
+                    st.stop()
                 
                 # --- SAVE TO SESSION STATE ---
                 st.session_state['mpt_results'] = {'results': opt_data['results'],

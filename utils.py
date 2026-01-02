@@ -4,6 +4,8 @@ import pandas as pd
 import scipy.optimize as sco
 import streamlit as st
 import yfinance as yf
+import cvxpy as cp
+from sklearn.covariance import LedoitWolf
 
 # Configuration Constants (Moved from Stock_App.py as needed or defaults)
 CACHE_TTL_SECONDS = 3600
@@ -206,6 +208,99 @@ def optimize_portfolio(price_data, risk_free_rate, num_portfolios):
         'opt_std': opt_std,
         'returns': returns,  # Needed for correlation matrix
         'tickers': price_data.columns
+    }
+
+def optimize_portfolio_robust(returns, risk_free_rate, num_portfolios):
+    """
+    Performs robust portfolio optimization using Ledoit-Wolf shrinkage and Convex Optimization.
+    Also generates random portfolios for visualization using the robust covariance matrix.
+    
+    Args:
+        returns (pd.DataFrame): Daily returns of the assets.
+        risk_free_rate (float): The risk-free rate (decimal).
+        num_portfolios (int): Number of random portfolios to generate for visualization.
+        
+    Returns:
+        dict: Optimization results containing weights, metrics, and simulation data.
+    """
+    if returns is None or returns.empty:
+        return None
+
+    # 1. Annualize Parameters
+    # Clean data: drop rows with NaNs to ensure covariance estimation works
+    clean_returns = returns.dropna()
+    
+    # Simple Mean Returns (Annualized)
+    mu = clean_returns.mean().values * 252
+    
+    # Robust Covariance Estimation (Ledoit-Wolf)
+    # Fit on daily returns, then annualize
+    lw = LedoitWolf()
+    lw.fit(clean_returns)
+    Sigma = lw.covariance_ * 252
+    
+    n_assets = len(mu)
+    
+    # 2. Define Optimization Problem with CVXPY
+    # Variables: weights w
+    w = cp.Variable(n_assets)
+    
+    # Objective: Minimize Variance (w.T @ Sigma @ w) -> equivalent to minimizing quad_form
+    risk = cp.quad_form(w, Sigma)
+    objective = cp.Minimize(risk)
+    
+    # Constraints:
+    # 1. Sum of weights = 1
+    # 2. Weights >= 0 (Long only)
+    constraints = [
+        cp.sum(w) == 1,
+        w >= 0
+    ]
+    
+    # 3. Solve
+    prob = cp.Problem(objective, constraints)
+    try:
+        prob.solve()
+    except cp.SolverError:
+        # Fallback if solver fails
+        return None
+        
+    if w.value is None:
+        return None
+        
+    # 4. Extract Results
+    opt_weights = w.value
+    
+    # Clean small weights
+    opt_weights[opt_weights < 1e-5] = 0
+    opt_weights /= opt_weights.sum() # Renormalize
+    
+    # Calculate Expected Metrics for Optimal Portfolio
+    opt_ret = np.dot(opt_weights, mu)
+    opt_vol = np.sqrt(np.dot(opt_weights.T, np.dot(Sigma, opt_weights)))
+    # opt_sharpe = opt_ret / opt_vol if opt_vol > MIN_VOLATILITY_FOR_SHARPE else 0.0 # Not strictly needed for return dict but good to have
+
+    # 5. Generate Random Portfolios for Visualization (using Robust Sigma)
+    # This ensures the scatter plot aligns with the robust assumptions
+    weights_sim = np.random.random((num_portfolios, n_assets))
+    weights_sim /= np.sum(weights_sim, axis=1)[:, np.newaxis]
+    
+    sim_returns = np.dot(weights_sim, mu)
+    sim_variances = np.einsum('ij,jk,ik->i', weights_sim, Sigma, weights_sim)
+    sim_stds = np.sqrt(sim_variances)
+    
+    sim_stds_safe = np.where(sim_stds > MIN_VOLATILITY_FOR_SHARPE, sim_stds, MIN_VOLATILITY_FOR_SHARPE)
+    sim_sharpes = (sim_returns - risk_free_rate) / sim_stds_safe
+    
+    results = np.vstack([sim_returns, sim_stds, sim_sharpes])
+    
+    return {
+        'results': results,
+        'opt_weights': opt_weights,
+        'opt_ret': opt_ret,
+        'opt_std': opt_vol,
+        'returns': returns,
+        'tickers': returns.columns
     }
 
 def calculate_rebalancing_plan(current_cash, valid_rows, current_prices_dict):
