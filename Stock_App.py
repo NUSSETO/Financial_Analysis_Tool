@@ -5,7 +5,7 @@ A Streamlit application for stock price forecasting, portfolio optimization, and
 Uses Monte Carlo simulation and Modern Portfolio Theory for financial analysis.
 
 Author: Jason Huang
-Year: 2025
+Year: 2026
 """
 
 import numpy as np
@@ -20,7 +20,6 @@ import utils
 # ==========================================
 
 # API Configuration
-CACHE_TTL_SECONDS = 3600  # 1 hour cache for stock data
 DEFAULT_DATA_PERIOD = "1y"  # Default period for stock forecaster
 OPTIMIZER_DATA_PERIOD = "3y"  # Period for portfolio optimizer
 REBALANCER_DATA_PERIOD = "5d"  # Period for rebalancer (to get latest prices)
@@ -33,7 +32,6 @@ MAX_SIMULATIONS = 1000
 MIN_SIMULATIONS = 100
 MAX_TIME_HORIZON = 365
 MIN_TIME_HORIZON = 5
-MAX_LINES_TO_PLOT = 50  # Limit visualization lines for performance
 
 # Portfolio Optimizer Defaults
 DEFAULT_NUM_PORTFOLIOS = 5000
@@ -48,10 +46,6 @@ HIGH_CORRELATION_THRESHOLD = 0.90  # Alert if correlation > this value
 DEFAULT_CASH_BALANCE = 10000.0
 ALLOCATION_TOLERANCE = 0.1  # Allow small float error in percentage sums
 MAX_CASH_PERCENTAGE_WARNING = 5.0  # Warn if cash > 5% of portfolio
-
-# Risk Analysis Constants
-VAR_CONFIDENCE_LEVEL = 0.05  # 5th percentile for VaR (95% confidence)
-MIN_VOLATILITY_FOR_SHARPE = 1e-10  # Avoid division by zero in Sharpe ratio
 
 # ==========================================
 # Application Configuration
@@ -106,7 +100,7 @@ st.markdown("""
 # Main Page Header
 # ==========================================
 
-st.title("📊 Quantitative Assets Allocation Engine")
+st.title("📊 Quantitative Asset Allocation Engine")
 st.caption("Market Data Extraction -> Statistical Analysis -> Robust Optimization")
 
 # Page Navigation with better labels
@@ -988,7 +982,7 @@ with st.container():
         <p><strong>Disclaimer:</strong> This application is for <strong>educational and informational purposes</strong> only. 
         The information presented does not constitute financial advice or recommendation to buy or sell any securities.
         All models are based on historical data and statistical assumptions, which do not guarantee future performance.</p>
-        <p>2025 Jason Huang | Data Source: Yahoo Finance | Built with Streamlit, Python & Gemini</p>
+        <p>2026 Jason Huang | Data Source: Yahoo Finance | Built with Streamlit, Python & Gemini</p>
         </div>
         """, 
         unsafe_allow_html = True)

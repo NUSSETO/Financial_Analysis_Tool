@@ -11,7 +11,7 @@ from sklearn.covariance import LedoitWolf
 CACHE_TTL_SECONDS = 3600
 VAR_CONFIDENCE_LEVEL = 0.05
 MIN_VOLATILITY_FOR_SHARPE = 1e-10
-MAX_lines_TO_PLOT = 50
+MAX_LINES_TO_PLOT = 50
 
 # ==========================================
 # Helper Functions (Moved from Stock_App.py)
@@ -123,7 +123,7 @@ def run_monte_carlo_simulation(last_price, log_returns, time_horizon, simulation
     prob_loss = float(np.mean(end_prices < last_price))
     
     # Optimize data for visualization
-    columns_to_store = min(simulations, MAX_lines_TO_PLOT)
+    columns_to_store = min(simulations, MAX_LINES_TO_PLOT)
     worst_scenario_idx = int(np.argmin(np.abs(end_prices - worst_case)))
     columns_indices = list(range(columns_to_store))
     
@@ -278,7 +278,6 @@ def optimize_portfolio_robust(returns, risk_free_rate, num_portfolios):
     # Calculate Expected Metrics for Optimal Portfolio
     opt_ret = np.dot(opt_weights, mu)
     opt_vol = np.sqrt(np.dot(opt_weights.T, np.dot(Sigma, opt_weights)))
-    # opt_sharpe = opt_ret / opt_vol if opt_vol > MIN_VOLATILITY_FOR_SHARPE else 0.0 # Not strictly needed for return dict but good to have
 
     # 5. Generate Random Portfolios for Visualization (using Robust Sigma)
     # This ensures the scatter plot aligns with the robust assumptions

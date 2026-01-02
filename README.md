@@ -1,13 +1,13 @@
 # Quantitative Asset Allocation Engine
 
 [![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://financialanalysistool-jasonhuang.streamlit.app)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/NUSSETO/Financial_Analysis_Tool/actions/workflows/python-app.yml/badge.svg)](https://github.com/NUSSETO/Financial_Analysis_Tool/actions/workflows/python-app.yml)
 
 ## Executive Summary
 
-The **Quantitative Asset Allocation Engine** is a professional-grade financial analysis tool designed for real-time portfolio optimization, risk assessment, and active rebalancing. Bridging the gap between academic theory and practical application, this engine allows users to:
+The **Financial Analysis Tool** is a professional-grade financial analysis tool designed for real-time portfolio optimization, risk assessment, and active rebalancing. Bridging the gap between academic theory and practical application, this engine allows users to:
 1.  **Forecast** future price action using stochastic simulations.
 2.  **Optimize** asset allocation using both Classical Mean-Variance and state-of-the-art **Robust Optimization** techniques.
 3.  **Rebalance** portfolios to maintain target allocations with precision.
