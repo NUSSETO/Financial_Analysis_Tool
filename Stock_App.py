@@ -123,7 +123,7 @@ st.markdown("---")
 
 if page == "📈 Stock Price Forecaster":
     
-    st.header("📈 Stock Price Prediction")
+    st.header("📈 Stock Price Forecasting")
     st.markdown("**Forecast future stock prices using Monte Carlo simulation based on historical volatility**")
     
     # --- Sidebar Settings ---  
@@ -183,6 +183,7 @@ if page == "📈 Stock Price Forecaster":
                     **Troubleshooting:**
                     - Check if the ticker symbol is correct (e.g., AAPL not Apple)
                     - Try a different ticker (e.g., VOO, SPY, MSFT)
+                    - Clear cache and rerun the app
                     - The API might be temporarily unavailable - please try again in a moment
                     """)
                     
@@ -349,7 +350,7 @@ if page == "📈 Stock Price Forecaster":
                 """)
 
         # Guide: Methodology
-        with st.expander("🧠 How does the prediction work? (Methodology)"):
+        with st.expander("🧠 How does the simulation work? (Methodology)"):
             st.markdown(
                 r"""
                 ### The Model: Geometric Brownian Motion (GBM)
@@ -383,12 +384,12 @@ if page == "📈 Stock Price Forecaster":
         col1.metric("📈 Expected Price (Average)", 
                     f"${expected_price:.2f}", 
                     f"{expected_pct:+.2f}%",
-                    delta_color = "normal" if expected_pct >= 0 else "inverse")
+                    delta_color = "normal")
 
         col2.metric("📊 Median Price (50th Percentile)",
                     f"${median_price:.2f}", 
                     f"{median_pct:+.2f}%",
-                    delta_color = "normal" if median_pct >= 0 else "inverse")
+                    delta_color = "normal")
 
         col3, col4 = st.columns(2)
                 
@@ -435,14 +436,9 @@ elif page == "⚖️ Portfolio Optimizer":
     st.markdown("**Optimize your portfolio allocation to maximize returns while minimizing risk**")
     
     # --- Sidebar Settings ---  
-    st.sidebar.header("⚙️ Model Parameters")
+    st.sidebar.header("⚙️ Model Settings")
 
-    st.sidebar.subheader("1. Asset Selection")
-    # Moved ticker input to sidebar for consistency, or keep in main area but group logic better. 
-    # The prompt asked to "Group inputs logically using headers... Fit Optimization Model under Model Parameters"
-    # I will keep Tickers in main area as it's the primary input, but organize the sidebar params.
-
-    st.sidebar.subheader("2. Optimization Settings")
+    st.sidebar.subheader("Optimization Parameters")
     
     num_portfolios = st.sidebar.slider("Monte Carlo Simulations", 
                                        MIN_NUM_PORTFOLIOS, MAX_NUM_PORTFOLIOS, DEFAULT_NUM_PORTFOLIOS,
@@ -457,17 +453,19 @@ elif page == "⚖️ Portfolio Optimizer":
     
     risk_free_rate = risk_free_rate_input / 100
 
-    st.sidebar.subheader("3. Model Methodology")
-    model_choice = st.sidebar.radio("Covariance Estimator",
-                                    ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)"],
-                                    help = "Robust: Uses Ledoit-Wolf shrinkage to reduce noise (better for out-of-sample performance).\nClassic: Standard Sample Covariance (sensitive to outliers).")
-
     seed = st.sidebar.number_input("Random Seed", 
                                    value = DEFAULT_RANDOM_SEED, 
                                    min_value = 0,
                                    step = 1,
                                    format = "%d",
                                    help = "Seed for reproducibility.")
+
+    st.sidebar.subheader("Model Methodology")
+    model_choice = st.sidebar.radio("Covariance Estimator",
+                                    ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)"],
+                                    help = "Robust: Uses Ledoit-Wolf shrinkage to reduce noise (better for out-of-sample performance).\nClassic: Standard Sample Covariance (sensitive to outliers).")
+
+
 
     # --- Input Section ---  
     col_input, col_btn = st.columns([4, 1]) 
@@ -633,7 +631,7 @@ elif page == "⚖️ Portfolio Optimizer":
                     """)
 
         with col_info2:
-            with st.expander("🧠 How does the optimization work? (Methodology)"):
+            with st.expander("🧠 How does the optimization work?"):
                 st.markdown(
                     r"""
                     ### Modern Portfolio Theory (MPT)
@@ -651,6 +649,22 @@ elif page == "⚖️ Portfolio Optimizer":
                     - $R_f$: Risk-Free Rate
                     - $\sigma_p$: Portfolio Risk (Volatility)
                     """)
+
+        with st.expander("📖 Methodology & Model Details"):
+            st.markdown(
+                """
+                ### 1. Classic Markowitz (Mean-Variance Optimization)
+                - **Objective**: Minimize portfolio variance for a given expected return.
+                - **Input**: Sample Covariance Matrix (calculated directly from historical returns).
+                - **Pros**: The standard academic baseline. Easy to interpret.
+                - **Cons**: Extremely sensitive to "noise" in historical data. Often maximizes estimation error, leading to extreme weights (e.g., 100% allocation to one asset).
+
+                ### 2. Robust Optimization (Ledoit-Wolf + CVXPY)
+                - **Objective**: Minimize portfolio variance using a *shrinkage* estimator and convex optimization.
+                - **Input**: **Ledoit-Wolf Covariance Matrix**. This "shrinks" the noisy sample covariance towards a structured target (constant correlation), reducing estimation error.
+                - **Solver**: Uses **CVXPY**, a professional-grade convex optimization library, ensuring mathematically precise global minima (unlike random search).
+                - **Why it matters**: In practice, sample covariance matrices are noisy. Robust methods prevent the optimizer from "chasing noise," resulting in more stable and diversified portfolios that perform better out-of-sample.
+                """)
 
         # --- Correlation Analysis & Warning System ---
                 
@@ -730,22 +744,6 @@ elif page == "⚖️ Portfolio Optimizer":
         
         if max_weight > 50:
             st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({allocation_df.iloc[0]['Weight']}). Consider if this matches your risk tolerance.")
-
-    st.divider()
-    with st.expander("📖 Methodology & Model Details"):
-        st.markdown("""
-        ### 1. Classic Markowitz (Mean-Variance Optimization)
-        - **Objective**: Minimize portfolio variance for a given expected return.
-        - **Input**: Sample Covariance Matrix (calculated directly from historical returns).
-        - **Pros**: The standard academic baseline. Easy to interpret.
-        - **Cons**: Extremely sensitive to "noise" in historical data. Often maximizes estimation error, leading to extreme weights (e.g., 100% allocation to one asset).
-
-        ### 2. Robust Optimization (Ledoit-Wolf + CVXPY)
-        - **Objective**: Minimize portfolio variance using a *shrinkage* estimator and convex optimization.
-        - **Input**: **Ledoit-Wolf Covariance Matrix**. This "shrinks" the noisy sample covariance towards a structured target (constant correlation), reducing estimation error.
-        - **Solver**: Uses **CVXPY**, a professional-grade convex optimization library, ensuring mathematically precise global minima (unlike random search).
-        - **Why it matters**: In practice, sample covariance matrices are noisy. Robust methods prevent the optimizer from "chasing noise," resulting in more stable and diversified portfolios that perform better out-of-sample.
-        """)
 
 # ==========================================
 # MODULE 3: PORTFOLIO REBALANCER
