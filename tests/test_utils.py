@@ -95,8 +95,8 @@ class TestMonteCarloSimulation:
         # Check DataFrame shape
         # Rows = time_horizon + 1 (Start day 0 + 20 days)
         # Cols = sim columns + 'Mean' 
-        # Note: logic limits columns to min(simulations, MAX_lines_TO_PLOT). 
-        # utils.MAX_lines_TO_PLOT is 50. 
+        # Note: logic limits columns to min(simulations, MAX_LINES_TO_PLOT). 
+        # utils.MAX_LINES_TO_PLOT is 50. 
         # If we ask for 50 simulations, we get 50 + 1 (Mean) = 51 columns.
         sim_df = result['simulation_df']
         assert len(sim_df) == time_horizon + 1
