@@ -528,8 +528,6 @@ elif page == "⚖️ Portfolio Optimizer":
 
             else:
                 # --- MPT Calculations & Simulation ---
-            else:
-                # --- MPT Calculations & Simulation ---
                 if model_choice == "Classic (Sample Covariance)":
                     opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
                     st.success("✅ **Standard Mean-Variance Optimization Complete**")
