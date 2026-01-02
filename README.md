@@ -98,6 +98,30 @@ The **Rebalancing Assistant** uses a systematic allocation algorithm closer to r
 -   **Integer Constraint**: Calculates absolute shares via floor division (`np.floor`) to ensure trades are executable (cannot buy fractional shares on many platforms).
 -   **Cash Optimization**: Prioritizes meeting target weights while preventing negative cash balances.
 
+## Assumptions 
+
+1.  **Data Processing**:
+    *   **Source**: Yahoo Finance (`yfinance`).
+    *   **Price Type**: Prefers **Adjusted Close** prices to account for splits and dividends, but automatically falls back to **Close** prices if adjusted data is unavailable.
+
+2.  **Returns Calculation**:
+    *   **Portfolio Optimization**: Uses **Daily Simple Returns** ($R_t = \frac{P_t - P_{t-1}}{P_{t-1}}$). Mean returns and Covariance Matrix are annualized using a factor of **252 trading days** (Arithmetic method).
+    *   **Monte Carlo Forecasting**: Uses **Daily Log Returns** ($r_t = \ln(\frac{P_t}{P_{t-1}})$) consistent with the Geometric Brownian Motion (GBM) model requirements.
+
+3.  **Optimization Constraints**:
+    *   **Long-Only**: Weights must be non-negative ($w_i \ge 0$). Short selling is not permitted.
+    *   **Fully Invested**: Weights must sum to exactly 1.0 ($\sum w_i = 1$). No leverage or borrowing.
+    *   **Frictionless**: The optimization objective does not currently penalize transaction costs or turnover.
+
+4.  **Risk Metrics (VaR/CVaR)**:
+    *   **Confidence Level**: 95%.
+    *   **VaR**: Defined as the **5th percentile** of the simulated terminal price distribution (Left-tail risk).
+    *   **CVaR (Expected Shortfall)**: Calculated as the average of all outcomes falling below the VaR threshold.
+
+5.  **Rebalancing Logic**:
+    *   **Integer Constraints**: Trades are calculated in whole shares (using `floor` rounding) to reflect real-world divisibility constraints.
+    *   **Cash Management**: Validates that target allocations do not significantly exceed 100%; flags negative projected cash balances to the user if targets are misaligned. Transaction fees are excluded.
+
 ## Disclaimer
 
 **Educational Use Only**: This application is intended for **informational and educational purposes only**. It uses historical data and statistical models (such as Monte Carlo simulations and Mean-Variance Optimization) to demonstrate theoretical concepts.
