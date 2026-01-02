@@ -51,7 +51,7 @@ This project leverages a powerful stack of Python libraries standard in the quan
 ## Quick Start
 
 ### Prerequisites
--   Python 3.8+
+-   Python 3.10+
 -   pip
 
 ### Installation
