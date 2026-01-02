@@ -13,7 +13,6 @@ import pandas as pd
 import plotly.graph_objects as go 
  
 import streamlit as st
-import yfinance as yf
 import utils
 
 # ==========================================
@@ -107,8 +106,8 @@ st.markdown("""
 # Main Page Header
 # ==========================================
 
-st.title("📊 Financial Analysis Tool")
-st.caption("Advanced Financial Modeling & Optimization | Powered by Modern Portfolio Theory & Monte Carlo Simulation")
+st.title("📊 Quantitative Assets Allocation Engine")
+st.caption("Market Data Extraction -> Statistical Analysis -> Robust Optimization")
 
 # Page Navigation with better labels
 page = st.radio("Select Tool:", 
@@ -117,12 +116,6 @@ page = st.radio("Select Tool:",
                 label_visibility = "collapsed")
 
 st.markdown("---")
-
-# ==========================================
-# Load Data Using Yahoo Finance API
-# ==========================================
-
-
 
 # ==========================================
 # MODULE 1: STOCK PRICE FORECASTER
@@ -442,43 +435,39 @@ elif page == "⚖️ Portfolio Optimizer":
     st.markdown("**Optimize your portfolio allocation to maximize returns while minimizing risk**")
     
     # --- Sidebar Settings ---  
-    st.sidebar.header("⚙️ Optimization Settings")
+    st.sidebar.header("⚙️ Model Parameters")
+
+    st.sidebar.subheader("1. Asset Selection")
+    # Moved ticker input to sidebar for consistency, or keep in main area but group logic better. 
+    # The prompt asked to "Group inputs logically using headers... Fit Optimization Model under Model Parameters"
+    # I will keep Tickers in main area as it's the primary input, but organize the sidebar params.
+
+    st.sidebar.subheader("2. Optimization Settings")
     
-    with st.sidebar.expander("💡 Quick Tips", expanded=False):
-        st.markdown("""
-        - **Diversification**: Mix stocks from different sectors/regions
-        - **Risk-Free Rate**: ~2-5% (US Treasury rate)
-        - **More Simulations**: Better accuracy but slower
-        """)
-    
-    num_portfolios = st.sidebar.slider("Number of Simulations", 
+    num_portfolios = st.sidebar.slider("Monte Carlo Simulations", 
                                        MIN_NUM_PORTFOLIOS, MAX_NUM_PORTFOLIOS, DEFAULT_NUM_PORTFOLIOS,
-                                       help = "Higher simulations produce a more accurate Efficient Frontier. Recommended: 3000-5000 for balance")
+                                       help = "Number of random portfolios simulated to map the Efficient Frontier.")
     
-    # Risk-Free Rate Input
     risk_free_rate_input = st.sidebar.number_input("Risk-Free Rate (%)",
                                                    value = DEFAULT_RISK_FREE_RATE,
                                                    min_value = MIN_RISK_FREE_RATE,
                                                    max_value = MAX_RISK_FREE_RATE,
                                                    step = 0.1,
-                                                   help = "Current annual risk-free rate (e.g., 3-month US Treasury Bill). Typical: 2-5%")
+                                                   help = "Annualized risk-free rate (e.g., 10-Year Treasury Yield).")
     
-    # Convert to decimal
     risk_free_rate = risk_free_rate_input / 100
+
+    st.sidebar.subheader("3. Model Methodology")
+    model_choice = st.sidebar.radio("Covariance Estimator",
+                                    ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)"],
+                                    help = "Robust: Uses Ledoit-Wolf shrinkage to reduce noise (better for out-of-sample performance).\nClassic: Standard Sample Covariance (sensitive to outliers).")
 
     seed = st.sidebar.number_input("Random Seed", 
                                    value = DEFAULT_RANDOM_SEED, 
                                    min_value = 0,
                                    step = 1,
                                    format = "%d",
-                                   help = "Fix the random numbers for reproducible results. Change to get different optimization results.")
-
-    st.sidebar.markdown("---")
-    st.sidebar.header("⚙️ Advanced Options")
-    
-    model_choice = st.sidebar.radio("Optimization Model",
-                                    ["Simple (Markowitz)", "Robust (Ledoit-Wolf + CVXPY)"],
-                                    help = "Simple: Standard Mean-Variance Optimization.\nRobust: Uses Ledoit-Wolf shrinkage for covariance calculation (better for noisy data) and CVXPY for precise convex optimization.")
+                                   help = "Seed for reproducibility.")
 
     # --- Input Section ---  
     col_input, col_btn = st.columns([4, 1]) 
@@ -539,12 +528,14 @@ elif page == "⚖️ Portfolio Optimizer":
 
             else:
                 # --- MPT Calculations & Simulation ---
-                if model_choice == "Simple (Markowitz)":
+            else:
+                # --- MPT Calculations & Simulation ---
+                if model_choice == "Classic (Sample Covariance)":
                     opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
-                    st.success("✅ **Running Simple Markowitz Optimization...**")
+                    st.success("✅ **Standard Mean-Variance Optimization Complete**")
                 else:
                     opt_data = utils.optimize_portfolio_robust(data.pct_change(), risk_free_rate, num_portfolios)
-                    st.success("✅ **Running Robust Optimization (Ledoit-Wolf + CVXPY)...**")
+                    st.success("✅ **Robust Optimization (Ledoit-Wolf) Complete**")
 
                 if opt_data is None:
                     st.error("Optimization failed. Please check your data or try different parameters.")
@@ -739,9 +730,24 @@ elif page == "⚖️ Portfolio Optimizer":
         st.markdown("**Allocation Breakdown:**")
         st.dataframe(allocation_df.set_index('Ticker'), use_container_width=True)
         
-        # Interpretation
         if max_weight > 50:
             st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({allocation_df.iloc[0]['Weight']}). Consider if this matches your risk tolerance.")
+
+    st.divider()
+    with st.expander("📖 Methodology & Model Details"):
+        st.markdown("""
+        ### 1. Classic Markowitz (Mean-Variance Optimization)
+        - **Objective**: Minimize portfolio variance for a given expected return.
+        - **Input**: Sample Covariance Matrix (calculated directly from historical returns).
+        - **Pros**: The standard academic baseline. Easy to interpret.
+        - **Cons**: Extremely sensitive to "noise" in historical data. Often maximizes estimation error, leading to extreme weights (e.g., 100% allocation to one asset).
+
+        ### 2. Robust Optimization (Ledoit-Wolf + CVXPY)
+        - **Objective**: Minimize portfolio variance using a *shrinkage* estimator and convex optimization.
+        - **Input**: **Ledoit-Wolf Covariance Matrix**. This "shrinks" the noisy sample covariance towards a structured target (constant correlation), reducing estimation error.
+        - **Solver**: Uses **CVXPY**, a professional-grade convex optimization library, ensuring mathematically precise global minima (unlike random search).
+        - **Why it matters**: In practice, sample covariance matrices are noisy. Robust methods prevent the optimizer from "chasing noise," resulting in more stable and diversified portfolios that perform better out-of-sample.
+        """)
 
 # ==========================================
 # MODULE 3: PORTFOLIO REBALANCER
