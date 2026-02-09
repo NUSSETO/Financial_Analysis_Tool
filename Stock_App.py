@@ -778,17 +778,19 @@ elif page == "🔄 Portfolio Rebalancer":
     with col_input:
         st.subheader("📋 Current Holdings")
         
-        # Initialize default data structure for the editor
-        if 'rebalance_data' not in st.session_state:
+        # Use a SEPARATE key for data storage (not the widget key)
+        # Streamlit doesn't allow pre-initializing the widget's own key
+        if 'holdings_data' not in st.session_state:
             default_data = {
                 "Ticker": ["VTI", "VXUS", "BND"],
                 "Shares": [50, 30, 20],
                 "Target (%)": [60.0, 30.0, 10.0]
             }
-            st.session_state['rebalance_data'] = pd.DataFrame(default_data)
+            st.session_state['holdings_data'] = pd.DataFrame(default_data)
         
-        # Data Editor (Excel-like input)
-        input_df = st.data_editor(st.session_state['rebalance_data'], 
+        # Data Editor - pass the data value, use key for widget state management
+        # The key prevents the reset-on-edit issue by letting Streamlit track widget state
+        input_df = st.data_editor(st.session_state['holdings_data'], 
                                   num_rows = "dynamic", 
                                   use_container_width = True,
                                   column_config = {
@@ -796,31 +798,34 @@ elif page == "🔄 Portfolio Rebalancer":
                                       "Shares": st.column_config.NumberColumn("Shares", min_value = 0, step = 1, format = "%d"),
                                       "Target (%)": st.column_config.NumberColumn("Target %", min_value = 0, max_value = 100, step = 0.1, format = "%.1f%%")
                                   },
-                                  hide_index = True)
+                                  hide_index = True,
+                                  key = "holdings_editor")
         
-        # Save changes to session state to prevent data loss on rerun
-        st.session_state['rebalance_data'] = input_df
+        # No sync needed - widget state is managed internally via the key parameter
+        # input_df contains the current edited data for use in calculations
 
         # Action Button
         st.write("")
         calculate_btn = st.button("🚀 Calculate Rebalancing", type = "primary", use_container_width = True)
         
-        # Show total target allocation
-        if 'rebalance_data' in st.session_state:
-            total_target = st.session_state['rebalance_data']['Target (%)'].sum()
-            if total_target > 0:
-                if total_target > 100.1:
-                    st.error(f"⚠️ Total allocation: {total_target:.1f}% (exceeds 100%)")
-                elif total_target < 99.9:
-                    st.warning(f"ℹ️ Total allocation: {total_target:.1f}% (less than 100%)")
-                else:
-                    st.success(f"✅ Total allocation: {total_target:.1f}%")
+        # Show total target allocation (use input_df which reflects current state)
+        total_target = input_df['Target (%)'].sum()
+        if total_target > 0:
+            if total_target > 100.1:
+                st.error(f"⚠️ Total allocation: {total_target:.1f}% (exceeds 100%)")
+            elif total_target < 99.9:
+                st.warning(f"ℹ️ Total allocation: {total_target:.1f}% (less than 100%)")
+            else:
+                st.success(f"✅ Total allocation: {total_target:.1f}%")
 
     # --- 3. Calculation Logic & Output (Right) ---
     with col_output:
         st.subheader("📊 Rebalancing Plan")
 
         if calculate_btn:
+            # Persist the current input data to session state (for cross-page persistence)
+            st.session_state['holdings_data'] = input_df.copy()
+            
             # A. Validation
             valid_rows = input_df[input_df['Ticker'].notna() & (input_df['Ticker'] != "")]
             
