@@ -1,7 +1,8 @@
 """
 Financial Analysis & Optimization Tool
 
-A Streamlit application for stock price forecasting, portfolio optimization, and rebalancing.
+A Streamlit application for stock price forecasting, portfolio optimization,
+rebalancing, historical stress testing, backtesting, and risk analysis.
 Uses Monte Carlo simulation and Modern Portfolio Theory for financial analysis.
 
 Author: Jason Huang
@@ -101,7 +102,7 @@ st.markdown("""
 # Main Page Header
 # ==========================================
 
-st.title("📊 Quantitative Asset Allocation Engine")
+st.title("📊 Financial Analysis Tool")
 st.caption("Market Data Extraction -> Statistical Analysis -> Robust Optimization")
 
 # Page Navigation with better labels
@@ -1480,7 +1481,7 @@ with st.container():
         <p><strong>Disclaimer:</strong> This application is for <strong>educational and informational purposes</strong> only. 
         The information presented does not constitute financial advice or recommendation to buy or sell any securities.
         All models are based on historical data and statistical assumptions, which do not guarantee future performance.</p>
-        <p>2026 Jason Huang | Data Source: Yahoo Finance | Built with Streamlit, Python & Gemini</p>
+        <p>2026 Jason Huang | Data Source: Yahoo Finance | Built with Streamlit & Python</p>
         </div>
         """, 
         unsafe_allow_html = True)
