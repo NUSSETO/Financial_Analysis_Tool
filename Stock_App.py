@@ -11,6 +11,7 @@ Year: 2026
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go 
+from datetime import datetime, timedelta
  
 import streamlit as st
 import utils
@@ -105,7 +106,8 @@ st.caption("Market Data Extraction -> Statistical Analysis -> Robust Optimizatio
 
 # Page Navigation with better labels
 page = st.radio("Select Tool:", 
-                ["📈 Stock Price Forecaster", "⚖️ Portfolio Optimizer", "🔄 Portfolio Rebalancer"], 
+                ["📈 Stock Price Forecaster", "⚖️ Portfolio Optimizer", "🔄 Portfolio Rebalancer",
+                 "🏥 Stress Tester", "📊 Backtester", "📉 Risk Dashboard"], 
                 horizontal = True,
                 label_visibility = "collapsed")
 
@@ -227,6 +229,9 @@ if page == "📈 Stock Price Forecaster":
                         'worst_case': sim_results['worst_case'],
                         'cvar_95': sim_results['cvar_95'],
                         'prob_loss': sim_results['prob_loss'],
+                        'max_drawdown': sim_results['max_drawdown'],
+                        'sharpe_ratio': sim_results['sharpe_ratio'],
+                        'end_prices': sim_results['end_prices'],
                         'ticker': ticker,
                         'time_horizon': time_horizon, 
                         'simulations': simulations
@@ -249,6 +254,9 @@ if page == "📈 Stock Price Forecaster":
         worst_case = res['worst_case']
         cvar_95 = res['cvar_95']
         prob_loss = res['prob_loss']
+        max_drawdown = res.get('max_drawdown', 0.0)
+        sharpe_ratio = res.get('sharpe_ratio', 0.0)
+        end_prices = res.get('end_prices', None)
         saved_ticker = res['ticker'] 
         saved_horizon = res['time_horizon']
         saved_sims = res['simulations']
@@ -397,29 +405,84 @@ if page == "📈 Stock Price Forecaster":
                     f"${cvar_95:.2f}",
                     f"{cvar_pct:+.2f}%",
                     delta_color = "normal",
-                    help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
+                     help = "Average terminal price within the worst 5% outcomes. This describes tail severity beyond VaR.")
         
-        # Risk indicator below CVaR
+        # --- New Risk Metrics: Max Drawdown & Sharpe ---
+        col5, col6 = st.columns(2)
+        
+        col5.metric("📉 Max Drawdown (Worst Path)",
+                    f"{max_drawdown*100:.1f}%",
+                    help = "Worst peak-to-trough drop observed across all simulated price paths. Measures the deepest possible 'dip' during the holding period.")
+        
+        sharpe_color = "🟢" if sharpe_ratio > 1.0 else "🟡" if sharpe_ratio > 0 else "🔴"
+        col6.metric(f"{sharpe_color} Annualized Sharpe Ratio",
+                    f"{sharpe_ratio:.2f}",
+                    help = "Risk-adjusted return from the simulation (annualized). > 1.0 is good, > 2.0 is very good.")
+
+        # Risk indicator: Probability of Loss
         prob_loss_pct = prob_loss*100
         loss_color = "🔴" if prob_loss_pct > 50 else "🟡" if prob_loss_pct > 30 else "🟢"
 
-        col5, col6 = st.columns([1, 1])
+        col7, col8 = st.columns([1, 1])
 
         # Probability of Loss metric
-        col5.metric(f"{loss_color} Probability of Loss",
+        col7.metric(f"{loss_color} Probability of Loss",
                   f"{prob_loss_pct:.1f}%",
                   help = "Share of simulations where the terminal price finishes below the current price.")
         
-        with col6:
+        with col8:
             # Use nested columns to limit the width of the warning message
-            col6a, col6b = st.columns([1, 1])
-            with col6a:
+            col8a, col8b = st.columns([1, 1])
+            with col8a:
                 if prob_loss_pct < 30:
                     st.success("✅ Low risk of loss")
                 elif prob_loss_pct < 50:
                     st.warning("⚠️ Moderate risk of loss")
                 else:
                     st.error("🔴 High risk of loss")
+        
+        # --- Terminal Price Distribution Histogram ---
+        if end_prices is not None:
+            st.divider()
+            st.subheader("📊 Terminal Price Distribution")
+            
+            fig_hist = go.Figure()
+            fig_hist.add_trace(go.Histogram(
+                x = end_prices,
+                nbinsx = 60,
+                marker_color = '#636EFA',
+                opacity = 0.75,
+                name = 'Terminal Prices'
+            ))
+            
+            # Add vertical reference lines
+            fig_hist.add_vline(x = last_price, line_dash = 'dash', line_color = 'green',
+                               annotation_text = f'Current: ${last_price:.2f}', annotation_position = 'top left')
+            fig_hist.add_vline(x = expected_price, line_dash = 'solid', line_color = '#EF553B',
+                               annotation_text = f'Expected: ${expected_price:.2f}', annotation_position = 'top right')
+            fig_hist.add_vline(x = worst_case, line_dash = 'dot', line_color = '#FFA15A',
+                               annotation_text = f'VaR 95%: ${worst_case:.2f}', annotation_position = 'bottom left')
+            
+            fig_hist.update_layout(
+                xaxis_title = 'Price (USD)',
+                yaxis_title = 'Frequency',
+                template = 'plotly_white',
+                height = 350,
+                showlegend = False,
+                bargap = 0.05
+            )
+            
+            st.plotly_chart(fig_hist, use_container_width = True)
+            
+            with st.expander("ℹ️ How to interpret this histogram?"):
+                st.markdown("""
+                This shows the **distribution of simulated end-of-period prices** across all scenarios.
+                - **Green dashed line**: Current price — prices to the left represent losses.
+                - **Red solid line**: Expected (average) terminal price.
+                - **Orange dotted line**: Value at Risk (VaR) — 95% of outcomes are above this price.
+                - A **wider spread** indicates higher uncertainty/volatility.
+                - A **right-skewed** distribution suggests upside potential.
+                """)
 
 # ==========================================
 # MODULE 2: PORTFOLIO OPTIMIZER (MPT)
@@ -455,9 +518,10 @@ elif page == "⚖️ Portfolio Optimizer":
                                    help = "Seed for reproducibility.")
 
     st.sidebar.subheader("Model Methodology")
-    model_choice = st.sidebar.radio("Covariance Estimator",
-                                    ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)"],
-                                    help = "Robust: Uses Ledoit-Wolf shrinkage to reduce noise (better for out-of-sample performance).\nClassic: Standard Sample Covariance (sensitive to outliers).")
+    model_choice = st.sidebar.radio("Optimization Model",
+                                    ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)",
+                                     "Black-Litterman", "Risk Parity"],
+                                    help = "Robust: Ledoit-Wolf shrinkage (recommended).\nClassic: Standard Sample Covariance.\nBlack-Litterman: Blend your own views with market equilibrium.\nRisk Parity: Equal risk contribution from each asset.")
 
 
 
@@ -479,6 +543,20 @@ elif page == "⚖️ Portfolio Optimizer":
         start_opt = st.button("🚀 Optimize", 
                               type = "primary", 
                               use_container_width = True)
+    
+    # --- Black-Litterman Views Input ---
+    views_dict = {}
+    if model_choice == "Black-Litterman":
+        with st.expander("💡 Enter Your Return Views", expanded=True):
+            st.markdown("Enter your expected **annual returns** for specific assets. Leave blank for no view on that asset.")
+            views_cols = st.columns(min(len(tickers), 4)) if tickers else []
+            for i, ticker in enumerate(tickers):
+                col_idx = i % len(views_cols) if views_cols else 0
+                with views_cols[col_idx]:
+                    view_val = st.number_input(f"{ticker} (%)", value=0.0, step=1.0, 
+                                               format="%.1f", key=f"view_{ticker}")
+                    if view_val != 0.0:
+                        views_dict[ticker] = view_val / 100.0
 
     # --- Optimization Logic ---
     if start_opt:
@@ -520,16 +598,51 @@ elif page == "⚖️ Portfolio Optimizer":
 
             else:
                 # --- MPT Calculations & Simulation ---
+                frontier_data = None
+                model_label = ""
+                extra_data = {}
+                
                 if model_choice == "Classic (Sample Covariance)":
                     opt_data = utils.optimize_portfolio(data, risk_free_rate, num_portfolios)
-                    st.success("✅ **Standard Mean-Variance Optimization Complete**")
-                else:
+                    model_label = "Standard Mean-Variance"
+                    classic_returns = data.pct_change()
+                    classic_mean = classic_returns.mean().values * 252
+                    classic_cov = classic_returns.cov().values * 252
+                    frontier_data = utils.compute_efficient_frontier(classic_mean, classic_cov)
+                    
+                elif model_choice == "Robust (Ledoit-Wolf)":
                     opt_data = utils.optimize_portfolio_robust(data.pct_change(), risk_free_rate, num_portfolios)
-                    st.success("✅ **Robust Optimization (Ledoit-Wolf) Complete**")
-
+                    model_label = "Robust (Ledoit-Wolf)"
+                    from sklearn.covariance import LedoitWolf
+                    clean_rets = data.pct_change().dropna()
+                    robust_mean = clean_rets.mean().values * 252
+                    lw = LedoitWolf()
+                    lw.fit(clean_rets)
+                    robust_cov = lw.covariance_ * 252
+                    frontier_data = utils.compute_efficient_frontier(robust_mean, robust_cov)
+                    
+                elif model_choice == "Black-Litterman":
+                    if not views_dict:
+                        st.warning("⚠️ No views entered. Please enter expected returns for at least one asset.")
+                        st.stop()
+                    opt_data = utils.optimize_portfolio_black_litterman(
+                        data.pct_change(), views_dict, risk_free_rate, num_portfolios=num_portfolios)
+                    model_label = "Black-Litterman"
+                    if opt_data is not None:
+                        extra_data['adjusted_returns'] = opt_data.get('adjusted_returns')
+                        extra_data['equilibrium_returns'] = opt_data.get('equilibrium_returns')
+                    
+                elif model_choice == "Risk Parity":
+                    opt_data = utils.optimize_portfolio_risk_parity(data.pct_change(), num_portfolios)
+                    model_label = "Risk Parity"
+                    if opt_data is not None:
+                        extra_data['risk_contributions'] = opt_data.get('risk_contributions')
+                
                 if opt_data is None:
                     st.error("Optimization failed. Please check your data or try different parameters.")
                     st.stop()
+                
+                st.success(f"✅ **{model_label} Optimization Complete**")
                 
                 # --- SAVE TO SESSION STATE ---
                 st.session_state['mpt_results'] = {'results': opt_data['results'],
@@ -538,7 +651,10 @@ elif page == "⚖️ Portfolio Optimizer":
                                                    'opt_weights': opt_data['opt_weights'],
                                                    'tickers': opt_data['tickers'],
                                                    'returns': opt_data['returns'],
-                                                   'rf_rate': risk_free_rate}
+                                                   'rf_rate': risk_free_rate,
+                                                   'frontier': frontier_data,
+                                                   'model_label': model_label,
+                                                   'extra': extra_data}
                 
                 # Success message
                 optimal_sharpe = (opt_data['opt_ret'] - risk_free_rate) / opt_data['opt_std']
@@ -555,6 +671,7 @@ elif page == "⚖️ Portfolio Optimizer":
         cols = data_store['tickers']
         returns = data_store['returns']
         saved_rf = data_store['rf_rate']
+        frontier = data_store.get('frontier', None)
                 
         # --- Visualization ---
         fig = go.Figure()
@@ -580,6 +697,15 @@ elif page == "⚖️ Portfolio Optimizer":
                                                line = dict(color = 'white',
                                                            width = 1)),
                                  name='Max Sharpe (Optimal)'))
+        
+        # Overlay Efficient Frontier curve
+        if frontier is not None:
+            fig.add_trace(go.Scatter(x = frontier['frontier_vols'],
+                                     y = frontier['frontier_rets'],
+                                     mode = 'lines',
+                                     name = 'Efficient Frontier',
+                                     line = dict(color = '#FF6692', width = 3, dash = 'solid'),
+                                     hovertemplate = 'Vol: %{x:.4f}<br>Return: %{y:.4f}<extra></extra>'))
 
         optimal_sharpe = (opt_ret - saved_rf) / opt_std
         fig.update_layout(
@@ -726,24 +852,72 @@ elif page == "⚖️ Portfolio Optimizer":
                     
         allocation_df = pd.DataFrame({"Ticker": cols, "Weight": opt_weights})
         allocation_df = allocation_df.sort_values(by = "Weight", ascending = False)
-        allocation_df['Weight'] = allocation_df['Weight'].apply(lambda x: f"{x*100:.2f}%")
         
-        # Get ticker with highest weight BEFORE setting index
+        # Get ticker with highest weight BEFORE formatting
         max_weight_ticker = allocation_df.iloc[0]['Ticker']
-        max_weight = float(allocation_df.iloc[0]['Weight'].replace('%', ''))
+        max_weight = allocation_df.iloc[0]['Weight'] * 100
         
-        # Add visual bars for weights
-        st.markdown("**Allocation Breakdown:**")
-        st.dataframe(allocation_df.set_index('Ticker'), use_container_width=True)
+        # Display table and pie chart side by side
+        col_table, col_pie = st.columns([1, 1])
+        
+        with col_table:
+            st.markdown("**Allocation Breakdown:**")
+            display_alloc = allocation_df.copy()
+            display_alloc['Weight'] = display_alloc['Weight'].apply(lambda x: f"{x*100:.2f}%")
+            st.dataframe(display_alloc.set_index('Ticker'), use_container_width=True)
+        
+        with col_pie:
+            # Filter out zero-weight assets for a clean pie chart
+            pie_df = allocation_df[allocation_df['Weight'] > 0.001]
+            fig_pie = go.Figure(data=[go.Pie(
+                labels = pie_df['Ticker'],
+                values = pie_df['Weight'],
+                hole = 0.4,
+                textinfo = 'label+percent',
+                textposition = 'outside',
+                marker = dict(colors = ['#636EFA', '#EF553B', '#00CC96', '#AB63FA', '#FFA15A',
+                                        '#19D3F3', '#FF6692', '#B6E880', '#FF97FF', '#FECB52']),
+                hovertemplate = '%{label}: %{percent}<extra></extra>'
+            )])
+            fig_pie.update_layout(
+                showlegend = False,
+                height = 350,
+                margin = dict(t=20, b=20, l=20, r=20)
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
         
         if max_weight > 50:
-            st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({allocation_df.iloc[0]['Weight']}). Consider if this matches your risk tolerance.")
+            st.info(f"💡 **Note:** {max_weight_ticker} has a high allocation ({max_weight:.2f}%). Consider if this matches your risk tolerance.")
 
 # ==========================================
 # MODULE 3: PORTFOLIO REBALANCER
 # ==========================================
 
 elif page == "🔄 Portfolio Rebalancer":
+
+    # --- Helper: Display rebalancing results (avoids duplicating formatting logic) ---
+    def _display_rebalance_results(res_df, total_equity, projected_cash):
+        """Formats and displays the rebalancing results table and cash summary."""
+        display_df = res_df.copy()
+        display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
+        display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
+        display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
+        st.dataframe(display_df, hide_index=True, use_container_width=True)
+
+        if total_equity > 0:
+            cash_pct = (projected_cash / total_equity) * 100
+            st.info(f"""
+                    **💰 Portfolio Summary:**
+                    - **Total Portfolio Value:** ${total_equity:,.2f}
+                    - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
+                    """)
+            if projected_cash < 0:
+                st.error("❌ **Warning: Negative cash balance!** Please reduce target percentages or add more cash.")
+            elif cash_pct > MAX_CASH_PERCENTAGE_WARNING:
+                st.warning(f"ℹ️ **Note:** {cash_pct:.1f}% of portfolio remains in cash due to integer share constraints.")
+        else:
+            st.error("❌ **Error: Invalid portfolio value.**")
+
     st.header("🔄 Portfolio Rebalancing Assistant")
     st.markdown("**Calculate trades needed to align your portfolio with target allocations**")
 
@@ -885,32 +1059,9 @@ elif page == "🔄 Portfolio Rebalancer":
                                         'current_cash': current_cash
                                     }
                                     
-                                    # Formatting for display
-                                    display_df = res_df.copy()
-                                    display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
-                                    display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
-                                    display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
-
-                                    # Show Main Table (centered)
-                                    st.dataframe(display_df, hide_index = True, use_container_width = True)
-                                    
-                                    # Success message (moved below table)
+                                    # Display results using helper
+                                    _display_rebalance_results(res_df, total_equity, projected_cash)
                                     st.success("✅ **Rebalancing plan calculated successfully!**")
-
-                                    # Show Cash Summary
-                                    # The remaining cash after buying integer shares
-                                    cash_pct = (projected_cash / total_equity) * 100
-                                    
-                                    st.info(f"""
-                                            **💰 Portfolio Summary:**
-                                            - **Total Portfolio Value:** ${total_equity:,.2f}
-                                            - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
-                                            """)
-
-                                    if projected_cash < 0:
-                                        st.error("❌ **Warning: Negative cash balance!** Please reduce target percentages or add more cash.")
-                                    elif cash_pct > MAX_CASH_PERCENTAGE_WARNING:
-                                        st.warning(f"ℹ️ **Note:** {cash_pct:.1f}% of portfolio remains in cash due to integer share constraints.")
 
                         except Exception as e:
                             st.error(f"An error occurred during calculation: {e}")
@@ -927,34 +1078,9 @@ elif page == "🔄 Portfolio Rebalancer":
                 if res_df is None or total_equity is None or projected_cash is None:
                     raise KeyError("Missing required keys in saved results")
                 
-                # Formatting for display
-                display_df = res_df.copy()
-                display_df['Value ($)'] = display_df['Value ($)'].apply(lambda x: f"${x:,.0f}")
-                display_df['Actual %'] = display_df['Actual %'].apply(lambda x: f"{x:.1f}%")
-                display_df['Trade (+/-)'] = display_df['Trade (+/-)'].apply(lambda x: f"+{x}" if x > 0 else f"{x}")
-                
-                # Show Main Table (centered)
-                st.dataframe(display_df, hide_index = True, use_container_width = True)
-                
-                # Info message (moved below table)
+                # Display results using helper
+                _display_rebalance_results(res_df, total_equity, projected_cash)
                 st.info("💾 **Displaying previously calculated rebalancing plan.** Click Calculate Rebalancing to recalculate with current data.")
-
-                # Show Cash Summary (with validation)
-                if total_equity > 0:
-                    cash_pct = (projected_cash / total_equity) * 100
-                    
-                    st.info(f"""
-                            **💰 Portfolio Summary:**
-                            - **Total Portfolio Value:** ${total_equity:,.2f}
-                            - **Remaining Cash:** ${projected_cash:,.2f} ({cash_pct:.1f}%)
-                            """)
-                    
-                    if projected_cash < 0:
-                        st.error("❌ **Warning: Negative cash balance!** Please reduce target percentages or add more cash.")
-                    elif cash_pct > MAX_CASH_PERCENTAGE_WARNING:
-                        st.warning(f"ℹ️ **Note:** {cash_pct:.1f}% of portfolio remains in cash due to integer share constraints.")
-                else:
-                    st.error("❌ **Error: Invalid portfolio value in saved results.**")
             except (KeyError, AttributeError, TypeError) as e:
                 st.error(f"❌ **Error loading saved results:** {str(e)}")
                 st.info("💡 **Tip:** Please recalculate your rebalancing plan.")
@@ -971,6 +1097,373 @@ elif page == "🔄 Portfolio Rebalancer":
             - Make sure target percentages sum to 100%
             - Click Calculate to see your rebalancing plan
             """)
+
+# ==========================================
+# MODULE 4: STRESS TESTER
+# ==========================================
+
+elif page == "🏥 Stress Tester":
+    st.header("🏥 Historical Stress Testing")
+    st.markdown("**Test how your portfolio would have survived major market crises**")
+
+    with st.expander("💡 How it works", expanded=False):
+        st.markdown("""
+        Enter your portfolio tickers and weights, then see how it would have performed during:
+        - **Dot-Com Crash** (2000-2002): Tech bubble burst
+        - **Global Financial Crisis** (2007-2009): Subprime mortgage crisis
+        - **COVID-19 Crash** (2020): Pandemic market shock
+        - **2022 Bear Market**: Inflation & rate hikes
+        """)
+
+    col_s1, col_s2 = st.columns([3, 1])
+    with col_s1:
+        stress_tickers_input = st.text_input("Enter Tickers (Comma Separated)", 
+                                              value="VTI, BND, VNQ",
+                                              key="stress_tickers",
+                                              help="Enter tickers for your portfolio")
+        stress_tickers = [t.strip().upper() for t in stress_tickers_input.split(",") if t.strip()]
+
+    with col_s2:
+        st.write("")
+        st.write("")
+        run_stress = st.button("🏥 Run Stress Test", type="primary", use_container_width=True)
+
+    # Weights input
+    if stress_tickers:
+        st.markdown("**Portfolio Weights:**")
+        weight_cols = st.columns(min(len(stress_tickers), 6))
+        stress_weights = []
+        for i, ticker in enumerate(stress_tickers):
+            with weight_cols[i % len(weight_cols)]:
+                w = st.number_input(f"{ticker} (%)", value=round(100.0/len(stress_tickers), 1), 
+                                    min_value=0.0, max_value=100.0, step=5.0, key=f"sw_{ticker}")
+                stress_weights.append(w / 100.0)
+
+    if run_stress and stress_tickers:
+        total_w = sum(stress_weights)
+        if abs(total_w - 1.0) > 0.05:
+            st.error(f"⚠️ Weights sum to {total_w*100:.1f}%. They should sum to ~100%.")
+        else:
+            stress_weights_arr = np.array(stress_weights) / sum(stress_weights)
+            
+            with st.spinner("🔄 Fetching historical data for crisis periods... This may take a moment."):
+                results = utils.run_stress_test(stress_tickers, stress_weights_arr)
+
+            if results:
+                st.session_state['stress_results'] = results
+                st.success("✅ **Stress test complete!**")
+
+    if 'stress_results' in st.session_state:
+        results = st.session_state['stress_results']
+        
+        # Summary table
+        st.divider()
+        st.subheader("📊 Crisis Performance Summary")
+        
+        summary_rows = []
+        for r in results:
+            if 'error' in r:
+                summary_rows.append({
+                    "Crisis": r['crisis'],
+                    "Total Return": "N/A",
+                    "Max Drawdown": "N/A",
+                    "Recovered": "N/A"
+                })
+            else:
+                summary_rows.append({
+                    "Crisis": r['crisis'],
+                    "Period": r['period'],
+                    "Total Return": f"{r['total_return']*100:.1f}%",
+                    "Max Drawdown": f"{r['max_drawdown']*100:.1f}%",
+                    "Days to Trough": r['trough_day'],
+                    "Recovered (6mo)": "✅ Yes" if r['recovered'] else "❌ No"
+                })
+        
+        st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+        
+        # Individual crisis charts
+        st.divider()
+        st.subheader("📈 Cumulative Return During Crises")
+        
+        for r in results:
+            if 'error' not in r and 'cum_returns' in r:
+                fig_crisis = go.Figure()
+                dates = r['dates'][:len(r['cum_returns'])]
+                
+                fig_crisis.add_trace(go.Scatter(
+                    x = dates, y = r['cum_returns'],
+                    mode = 'lines', name = 'Portfolio',
+                    line = dict(color='#636EFA', width=2)
+                ))
+                
+                fig_crisis.add_hline(y=1.0, line_dash='dash', line_color='gray',
+                                     annotation_text='Starting Value')
+                
+                fig_crisis.update_layout(
+                    title = r['crisis'],
+                    xaxis_title = 'Date', yaxis_title = 'Cumulative Return (1.0 = Starting)',
+                    template = 'plotly_white', height = 350,
+                    showlegend = False
+                )
+                st.plotly_chart(fig_crisis, use_container_width=True)
+
+# ==========================================
+# MODULE 5: BACKTESTER
+# ==========================================
+
+elif page == "📊 Backtester":
+    st.header("📊 Portfolio Backtester")
+    st.markdown("**Backtest a portfolio strategy against historical data and compare with a benchmark**")
+
+    # --- Inputs ---
+    col_b1, col_b2 = st.columns([3, 1])
+    with col_b1:
+        bt_tickers_input = st.text_input("Tickers (Comma Separated)", value="VTI, BND, VNQ",
+                                          key="bt_tickers")
+        bt_tickers = [t.strip().upper() for t in bt_tickers_input.split(",") if t.strip()]
+
+    with col_b2:
+        st.write("")
+        st.write("")
+        run_bt = st.button("📊 Run Backtest", type="primary", use_container_width=True)
+
+    col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+    with col_d1:
+        bt_start = st.date_input("Start Date", value=datetime(2015, 1, 1))
+    with col_d2:
+        bt_end = st.date_input("End Date", value=datetime.now())
+    with col_d3:
+        bt_rebal = st.selectbox("Rebalancing", ["none", "monthly", "quarterly", "annually"])
+    with col_d4:
+        bt_bench = st.text_input("Benchmark", value="SPY")
+
+    # Weights
+    if bt_tickers:
+        st.markdown("**Portfolio Weights:**")
+        wt_cols = st.columns(min(len(bt_tickers), 6))
+        bt_weights = []
+        for i, ticker in enumerate(bt_tickers):
+            with wt_cols[i % len(wt_cols)]:
+                w = st.number_input(f"{ticker} (%)", value=round(100.0/len(bt_tickers), 1),
+                                    min_value=0.0, max_value=100.0, step=5.0, key=f"bw_{ticker}")
+                bt_weights.append(w / 100.0)
+
+    if run_bt and bt_tickers:
+        bt_weights_arr = np.array(bt_weights)
+        bt_weights_arr = bt_weights_arr / bt_weights_arr.sum()
+
+        with st.spinner("🔄 Running backtest..."):
+            bt_result = utils.run_backtest(
+                bt_tickers, bt_weights_arr,
+                bt_start.strftime('%Y-%m-%d'), bt_end.strftime('%Y-%m-%d'),
+                bt_rebal, bt_bench.strip().upper()
+            )
+
+        if bt_result:
+            st.session_state['bt_result'] = bt_result
+            st.success("✅ **Backtest complete!**")
+        else:
+            st.error("❌ Backtest failed. Check your tickers and date range.")
+
+    if 'bt_result' in st.session_state:
+        bt = st.session_state['bt_result']
+
+        # Key metrics
+        st.divider()
+        st.subheader("📊 Performance Metrics")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("📈 Total Return", f"{bt['total_return']*100:.1f}%")
+        m2.metric("📊 CAGR", f"{bt['cagr']*100:.2f}%")
+        m3.metric("📉 Max Drawdown", f"{bt['max_drawdown']*100:.1f}%")
+        m4.metric("⭐ Sharpe Ratio", f"{bt['sharpe']:.2f}")
+        m5.metric("🎯 Win Rate", f"{bt['win_rate']*100:.1f}%")
+
+        if 'benchmark_return' in bt:
+            st.info(f"📊 **Benchmark ({bt['benchmark_name']}) Total Return:** {bt['benchmark_return']*100:.1f}%")
+
+        # Cumulative return chart
+        st.divider()
+        st.subheader("📈 Cumulative Returns")
+        fig_bt = go.Figure()
+
+        fig_bt.add_trace(go.Scatter(
+            x = bt['portfolio_cum'].index, y = bt['portfolio_cum'].values,
+            mode = 'lines', name = 'Portfolio',
+            line = dict(color='#636EFA', width=2)
+        ))
+
+        if 'benchmark_cum' in bt:
+            fig_bt.add_trace(go.Scatter(
+                x = bt['benchmark_cum'].index, y = bt['benchmark_cum'].values,
+                mode = 'lines', name = f"Benchmark ({bt['benchmark_name']})",
+                line = dict(color='#EF553B', width=2, dash='dash')
+            ))
+
+        fig_bt.update_layout(
+            xaxis_title='Date', yaxis_title='Cumulative Return (1.0 = Start)',
+            template='plotly_white', height=450, showlegend=True
+        )
+        st.plotly_chart(fig_bt, use_container_width=True)
+
+        # Drawdown chart
+        st.subheader("📉 Drawdown")
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x = bt['drawdown_series'].index, y = bt['drawdown_series'].values * 100,
+            mode = 'lines', fill = 'tozeroy', name = 'Drawdown',
+            line = dict(color='#EF553B', width=1),
+            fillcolor = 'rgba(239, 85, 59, 0.3)'
+        ))
+        fig_dd.update_layout(
+            xaxis_title='Date', yaxis_title='Drawdown (%)',
+            template='plotly_white', height=300
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+# ==========================================
+# MODULE 6: RISK DASHBOARD
+# ==========================================
+
+elif page == "📉 Risk Dashboard":
+    st.header("📉 Risk Dashboard")
+    st.markdown("**Rolling risk metrics and CAPM factor decomposition**")
+
+    # Inputs
+    col_r1, col_r2, col_r3 = st.columns([3, 1, 1])
+    with col_r1:
+        rd_ticker_input = st.text_input("Ticker(s) (Comma Separated)", value="VTI",
+                                         key="rd_tickers")
+        rd_tickers = [t.strip().upper() for t in rd_ticker_input.split(",") if t.strip()]
+    with col_r2:
+        rd_window = st.number_input("Rolling Window (Days)", value=60, min_value=10, max_value=252, step=10)
+    with col_r3:
+        rd_bench = st.text_input("Benchmark", value="SPY", key="rd_bench")
+    
+    st.write("")
+    run_rd = st.button("📉 Analyze Risk", type="primary")
+
+    if run_rd and rd_tickers:
+        with st.spinner("🔄 Computing rolling metrics..."):
+            # Fetch data
+            raw_rd = utils.get_stock_data(rd_tickers, period="3y")
+            if raw_rd is not None:
+                price_data_rd = utils.extract_price_data(raw_rd, prefer_adj_close=True)
+                if price_data_rd is not None:
+                    metrics = utils.compute_rolling_metrics(price_data_rd, window=rd_window,
+                                                            benchmark_ticker=rd_bench.strip().upper())
+                    if metrics:
+                        st.session_state['rd_metrics'] = metrics
+                        st.success("✅ **Rolling metrics computed!**")
+                    
+                    # Factor decomposition
+                    bench_raw = utils.get_stock_data(rd_bench.strip().upper(), period="3y")
+                    if bench_raw is not None:
+                        bench_price = utils.extract_price_data(bench_raw, prefer_adj_close=True)
+                        if bench_price is not None:
+                            if isinstance(price_data_rd, pd.DataFrame):
+                                port_ret = price_data_rd.pct_change().dropna().mean(axis=1)
+                            else:
+                                port_ret = price_data_rd.pct_change().dropna()
+                            bench_ret = bench_price.iloc[:, 0].pct_change().dropna()
+                            
+                            factors = utils.compute_factor_decomposition(port_ret, bench_ret)
+                            if factors:
+                                st.session_state['rd_factors'] = factors
+                                st.session_state['rd_bench_name'] = rd_bench.strip().upper()
+                else:
+                    st.error("❌ Could not extract price data.")
+            else:
+                st.error("❌ Could not fetch data. Check your tickers.")
+
+    if 'rd_metrics' in st.session_state:
+        metrics = st.session_state['rd_metrics']
+        
+        st.divider()
+        st.subheader(f"📈 Rolling Metrics (Window: {rd_window} days)")
+
+        # Rolling Volatility
+        fig_vol = go.Figure()
+        fig_vol.add_trace(go.Scatter(
+            x=metrics['rolling_vol'].index, y=metrics['rolling_vol'].values * 100,
+            mode='lines', name='Rolling Volatility',
+            line=dict(color='#636EFA', width=2)
+        ))
+        fig_vol.update_layout(
+            title='Rolling Annualized Volatility',
+            xaxis_title='Date', yaxis_title='Volatility (%)',
+            template='plotly_white', height=350
+        )
+        st.plotly_chart(fig_vol, use_container_width=True)
+
+        # Rolling Sharpe
+        fig_sharpe = go.Figure()
+        fig_sharpe.add_trace(go.Scatter(
+            x=metrics['rolling_sharpe'].index, y=metrics['rolling_sharpe'].values,
+            mode='lines', name='Rolling Sharpe',
+            line=dict(color='#00CC96', width=2)
+        ))
+        fig_sharpe.add_hline(y=0, line_dash='dash', line_color='gray')
+        fig_sharpe.add_hline(y=1.0, line_dash='dot', line_color='green',
+                              annotation_text='Good (1.0)')
+        fig_sharpe.update_layout(
+            title='Rolling Annualized Sharpe Ratio',
+            xaxis_title='Date', yaxis_title='Sharpe Ratio',
+            template='plotly_white', height=350
+        )
+        st.plotly_chart(fig_sharpe, use_container_width=True)
+
+        # Rolling Beta
+        if 'rolling_beta' in metrics:
+            fig_beta = go.Figure()
+            fig_beta.add_trace(go.Scatter(
+                x=metrics['rolling_beta'].index, y=metrics['rolling_beta'].values,
+                mode='lines', name='Rolling Beta',
+                line=dict(color='#AB63FA', width=2)
+            ))
+            fig_beta.add_hline(y=1.0, line_dash='dash', line_color='gray',
+                                annotation_text='Market Beta (1.0)')
+            fig_beta.update_layout(
+                title=f'Rolling Beta vs {metrics.get("benchmark_name", "SPY")}',
+                xaxis_title='Date', yaxis_title='Beta',
+                template='plotly_white', height=350
+            )
+            st.plotly_chart(fig_beta, use_container_width=True)
+
+    # Factor Decomposition
+    if 'rd_factors' in st.session_state:
+        factors = st.session_state['rd_factors']
+        bench_name = st.session_state.get('rd_bench_name', 'SPY')
+        
+        st.divider()
+        st.subheader(f"🧬 CAPM Factor Decomposition (vs {bench_name})")
+        
+        f1, f2, f3, f4, f5 = st.columns(5)
+        
+        alpha_color = "🟢" if factors['alpha'] > 0 else "🔴"
+        f1.metric(f"{alpha_color} Alpha (Annual)", f"{factors['alpha']*100:.2f}%",
+                  help="Excess return not explained by market exposure. Positive = outperformance.")
+        f2.metric("📊 Beta", f"{factors['beta']:.2f}",
+                  help="Sensitivity to market movements. 1.0 = moves with market. >1 = more volatile.")
+        f3.metric("📈 R²", f"{factors['r_squared']:.2f}",
+                  help="How much of the portfolio's movement is explained by the benchmark. 1.0 = perfectly correlated.")
+        f4.metric("📏 Tracking Error", f"{factors['tracking_error']*100:.1f}%",
+                  help="Annualized standard deviation of the difference between portfolio and benchmark returns.")
+        
+        ir_color = "🟢" if factors['information_ratio'] > 0.5 else "🟡" if factors['information_ratio'] > 0 else "🔴"
+        f5.metric(f"{ir_color} Info Ratio", f"{factors['information_ratio']:.2f}",
+                  help="Active return per unit of tracking error. >0.5 is good, >1.0 is excellent.")
+        
+        with st.expander("📖 What do these metrics mean?"):
+            st.markdown("""
+            | Metric | Meaning |
+            |---|---|
+            | **Alpha** | The portfolio's excess return beyond what the market (beta) explains. Positive = you're generating value. |
+            | **Beta** | Market sensitivity. β=1.0 means 1:1 with market. β=0.5 means half the market's movement. |
+            | **R²** | % of portfolio variance explained by the benchmark. Higher = more correlated to market. |
+            | **Tracking Error** | How much your returns deviate from the benchmark. Lower = closer tracking. |
+            | **Information Ratio** | Active return per unit of risk taken vs benchmark. Higher = better risk-adjusted outperformance. |
+            """)
+
 
 # ==========================================
 #  Footer & Disclaimer 

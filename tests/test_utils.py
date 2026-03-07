@@ -87,7 +87,8 @@ class TestMonteCarloSimulation:
         # Check Keys
         expected_keys = [
             'simulation_df', 'expected_price', 'median_price', 
-            'worst_case', 'cvar_95', 'prob_loss'
+            'worst_case', 'cvar_95', 'prob_loss',
+            'max_drawdown', 'sharpe_ratio', 'end_prices'
         ]
         for key in expected_keys:
             assert key in result, f"Missing key: {key}"
@@ -104,6 +105,13 @@ class TestMonteCarloSimulation:
         
         # Check values are floats (sanity)
         assert isinstance(result['expected_price'], float)
+        
+        # Check new metrics
+        assert isinstance(result['max_drawdown'], float)
+        assert result['max_drawdown'] <= 0, "Max drawdown should be non-positive"
+        assert isinstance(result['sharpe_ratio'], float)
+        assert isinstance(result['end_prices'], np.ndarray)
+        assert len(result['end_prices']) == simulations
 
 class TestRebalancingPlan:
     def test_calculate_rebalancing_basics(self):
@@ -173,3 +181,230 @@ class TestRebalancingPlan:
         result = utils.calculate_rebalancing_plan(current_cash, valid_rows, prices)
         
         assert 'error' in result
+
+class TestEfficientFrontier:
+    def test_frontier_basic_shape(self):
+        """Test that the efficient frontier returns correct structure."""
+        np.random.seed(42)
+        # 3 assets, annualized params
+        mean_returns = np.array([0.10, 0.15, 0.20])
+        # Create a valid covariance matrix
+        data = np.random.normal(0, 0.01, (200, 3))
+        cov_matrix = np.cov(data.T) * 252
+        
+        result = utils.compute_efficient_frontier(mean_returns, cov_matrix, num_points=20)
+        
+        assert result is not None
+        assert 'frontier_vols' in result
+        assert 'frontier_rets' in result
+        assert len(result['frontier_vols']) >= 2
+        assert len(result['frontier_rets']) >= 2
+    
+    def test_frontier_returns_none_for_equal_returns(self):
+        """If all assets have the same expected return, frontier should return None."""
+        mean_returns = np.array([0.10, 0.10, 0.10])
+        cov_matrix = np.eye(3) * 0.04
+        
+        result = utils.compute_efficient_frontier(mean_returns, cov_matrix)
+        assert result is None
+
+
+class TestRiskParity:
+    def test_risk_parity_basic(self):
+        """Test risk parity returns valid structure with equal risk contributions."""
+        np.random.seed(42)
+        # Create synthetic returns data
+        n_days = 252
+        data = pd.DataFrame({
+            'A': np.random.normal(0.0005, 0.01, n_days),
+            'B': np.random.normal(0.0003, 0.02, n_days),
+            'C': np.random.normal(0.0004, 0.015, n_days)
+        })
+        
+        result = utils.optimize_portfolio_risk_parity(data, num_portfolios=100)
+        
+        assert result is not None
+        assert 'opt_weights' in result
+        assert 'risk_contributions' in result
+        assert len(result['opt_weights']) == 3
+        assert abs(result['opt_weights'].sum() - 1.0) < 0.01
+        # Risk contributions should be roughly equal (within tolerance)
+        rc = result['risk_contributions']
+        assert np.std(rc) < 0.15, f"Risk contributions too unequal: {rc}"
+
+
+class TestBlackLitterman:
+    def test_bl_basic(self):
+        """Test Black-Litterman returns valid structure."""
+        np.random.seed(42)
+        n_days = 252
+        data = pd.DataFrame({
+            'AAPL': np.random.normal(0.001, 0.015, n_days),
+            'MSFT': np.random.normal(0.0008, 0.012, n_days),
+            'GOOG': np.random.normal(0.0006, 0.018, n_days)
+        })
+        
+        views = {'AAPL': 0.15}  # 15% annual return view on AAPL
+        
+        result = utils.optimize_portfolio_black_litterman(data, views, risk_free_rate=0.04, 
+                                                           num_portfolios=100)
+        
+        assert result is not None
+        assert 'opt_weights' in result
+        assert 'adjusted_returns' in result
+        assert 'equilibrium_returns' in result
+        assert len(result['opt_weights']) == 3
+        assert abs(result['opt_weights'].sum() - 1.0) < 0.01
+
+
+class TestFactorDecomposition:
+    def test_factor_decomposition_basic(self):
+        """Test CAPM factor decomposition returns correct structure."""
+        np.random.seed(42)
+        dates = pd.date_range('2020-01-01', periods=252, freq='B')
+        market = pd.Series(np.random.normal(0.0005, 0.01, 252), index=dates)
+        # Portfolio with beta ~1.2
+        portfolio = market * 1.2 + np.random.normal(0.0001, 0.005, 252)
+        portfolio = pd.Series(portfolio, index=dates)
+        
+        result = utils.compute_factor_decomposition(portfolio, market)
+        
+        assert result is not None
+        assert 'alpha' in result
+        assert 'beta' in result
+        assert 'r_squared' in result
+        assert 'tracking_error' in result
+        assert 'information_ratio' in result
+        # Beta should be approximately 1.2
+        assert abs(result['beta'] - 1.2) < 0.3, f"Beta {result['beta']} too far from expected 1.2"
+    
+    def test_factor_insufficient_data(self):
+        """Test returns None with insufficient data."""
+        dates = pd.date_range('2020-01-01', periods=10, freq='B')
+        p = pd.Series(np.random.normal(0, 0.01, 10), index=dates)
+        b = pd.Series(np.random.normal(0, 0.01, 10), index=dates)
+        
+        result = utils.compute_factor_decomposition(p, b)
+        assert result is None
+
+
+class TestRollingMetrics:
+    def test_rolling_metrics_basic(self):
+        """Test rolling metrics returns correct structure."""
+        np.random.seed(42)
+        dates = pd.date_range('2020-01-01', periods=252, freq='B')
+        prices = pd.Series(100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.01, 252))),
+                            index=dates)
+        
+        result = utils.compute_rolling_metrics(prices, window=30, benchmark_ticker='SPY')
+        
+        assert result is not None
+        assert 'rolling_vol' in result
+        assert 'rolling_sharpe' in result
+        assert len(result['rolling_vol']) > 0
+
+    def test_rolling_metrics_dataframe_input(self):
+        """Test rolling metrics works with DataFrame (multiple assets)."""
+        np.random.seed(42)
+        dates = pd.date_range('2020-01-01', periods=252, freq='B')
+        prices = pd.DataFrame({
+            'A': 100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.01, 252))),
+            'B': 50 * np.exp(np.cumsum(np.random.normal(0.0003, 0.015, 252)))
+        }, index=dates)
+        
+        result = utils.compute_rolling_metrics(prices, window=30, benchmark_ticker='SPY')
+        
+        assert result is not None
+        assert len(result['rolling_vol']) > 0
+
+
+# ==========================================
+# Edge Case Tests
+# ==========================================
+
+class TestEdgeCases:
+    def test_monte_carlo_single_simulation(self):
+        """Monte Carlo should work with just 1 simulation."""
+        np.random.seed(42)
+        log_returns = pd.Series(np.random.normal(0.001, 0.02, 100))
+        
+        result = utils.run_monte_carlo_simulation(
+            last_price=100.0, log_returns=log_returns,
+            time_horizon=10, simulations=1
+        )
+        assert result is not None
+        assert result['expected_price'] > 0
+        assert len(result['end_prices']) == 1
+
+    def test_optimize_portfolio_two_assets(self):
+        """Portfolio optimizer should work with exactly 2 assets."""
+        np.random.seed(42)
+        dates = pd.date_range('2020-01-01', periods=252, freq='B')
+        prices = pd.DataFrame({
+            'A': 100 + np.cumsum(np.random.randn(252) * 0.5),
+            'B': 50 + np.cumsum(np.random.randn(252) * 0.3)
+        }, index=dates)
+        # Ensure prices stay positive
+        prices = prices.clip(lower=1.0)
+        
+        result = utils.optimize_portfolio(prices, risk_free_rate=0.04, num_portfolios=50)
+        assert result is not None
+        assert abs(result['opt_weights'].sum() - 1.0) < 0.01
+
+    def test_bl_no_matching_views(self):
+        """Black-Litterman with views for non-existent tickers should use equilibrium."""
+        np.random.seed(42)
+        n_days = 252
+        data = pd.DataFrame({
+            'AAPL': np.random.normal(0.001, 0.015, n_days),
+            'MSFT': np.random.normal(0.0008, 0.012, n_days)
+        })
+        
+        views = {'NONEXISTENT': 0.20}  # No matching ticker
+        result = utils.optimize_portfolio_black_litterman(data, views, risk_free_rate=0.04, 
+                                                           num_portfolios=50)
+        # Should still return a result using equilibrium returns
+        assert result is not None
+        assert abs(result['opt_weights'].sum() - 1.0) < 0.01
+
+    def test_risk_parity_two_assets(self):
+        """Risk parity should work with exactly 2 assets."""
+        np.random.seed(42)
+        data = pd.DataFrame({
+            'A': np.random.normal(0.0005, 0.01, 252),
+            'B': np.random.normal(0.0003, 0.03, 252)  # much more volatile
+        })
+        
+        result = utils.optimize_portfolio_risk_parity(data, num_portfolios=50)
+        assert result is not None
+        assert len(result['opt_weights']) == 2
+        # Higher-vol asset should have lower weight
+        assert result['opt_weights'][1] < result['opt_weights'][0], \
+            f"Higher-vol asset B should have lower weight but got {result['opt_weights']}"
+
+    def test_factor_decomposition_identical_series(self):
+        """Factor decomposition of identical series should have beta=1, alpha=0."""
+        np.random.seed(42)
+        dates = pd.date_range('2020-01-01', periods=252, freq='B')
+        returns = pd.Series(np.random.normal(0.0005, 0.01, 252), index=dates)
+        
+        result = utils.compute_factor_decomposition(returns, returns)
+        assert result is not None
+        assert abs(result['beta'] - 1.0) < 0.01, f"Beta should be ~1.0 but got {result['beta']}"
+        assert abs(result['alpha']) < 0.01, f"Alpha should be ~0 but got {result['alpha']}"
+        assert result['r_squared'] > 0.99, f"R² should be ~1.0 but got {result['r_squared']}"
+        assert result['tracking_error'] < 0.01, f"Tracking error should be ~0 but got {result['tracking_error']}"
+
+    def test_extract_price_data_with_none(self):
+        """extract_price_data should handle None gracefully."""
+        assert utils.extract_price_data(None) is None
+    
+    def test_empty_returns_risk_parity(self):
+        """Risk parity with empty DataFrame should return None."""
+        result = utils.optimize_portfolio_risk_parity(pd.DataFrame())
+        assert result is None
+    
+    def test_empty_returns_bl(self):
+        """Black-Litterman with empty DataFrame should return None."""
+        result = utils.optimize_portfolio_black_litterman(pd.DataFrame(), {'A': 0.15}, 0.04)
+        assert result is None
