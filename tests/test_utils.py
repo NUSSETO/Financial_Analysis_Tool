@@ -408,3 +408,105 @@ class TestEdgeCases:
         """Black-Litterman with empty DataFrame should return None."""
         result = utils.optimize_portfolio_black_litterman(pd.DataFrame(), {'A': 0.15}, 0.04)
         assert result is None
+
+
+class TestDownsideMetrics:
+    """Tests for the downside risk metric helpers."""
+
+    def test_downside_deviation_no_losses_is_zero(self):
+        """All-positive returns have zero downside deviation."""
+        returns = np.array([0.01, 0.02, 0.015, 0.03])
+        assert utils.downside_deviation(returns) == 0.0
+
+    def test_downside_deviation_positive_with_losses(self):
+        """Returns containing losses produce a positive downside deviation."""
+        returns = np.array([0.02, -0.03, 0.01, -0.05, 0.04])
+        assert utils.downside_deviation(returns) > 0.0
+
+    def test_downside_deviation_empty(self):
+        """Empty input returns 0.0 rather than raising."""
+        assert utils.downside_deviation(np.array([])) == 0.0
+
+    def test_downside_deviation_ignores_nan(self):
+        """NaNs are dropped and do not break the computation."""
+        clean = np.array([0.01, -0.02, 0.03])
+        with_nan = np.array([0.01, np.nan, -0.02, 0.03])
+        assert utils.downside_deviation(with_nan) == pytest.approx(
+            utils.downside_deviation(clean))
+
+    def test_sortino_positive_for_good_returns(self):
+        """A series with positive mean and limited downside has a positive Sortino."""
+        np.random.seed(1)
+        returns = np.random.normal(0.001, 0.01, 252)
+        assert utils.sortino_ratio(returns) > 0.0
+
+    def test_sortino_zero_when_no_downside(self):
+        """No downside deviation -> Sortino is defined as 0.0 (guarded)."""
+        returns = np.array([0.01, 0.02, 0.03])
+        assert utils.sortino_ratio(returns) == 0.0
+
+    def test_calmar_basic(self):
+        """Calmar = cagr / |max_drawdown|."""
+        assert utils.calmar_ratio(0.20, -0.10) == pytest.approx(2.0)
+
+    def test_calmar_zero_drawdown_guarded(self):
+        """Zero drawdown returns 0.0 instead of dividing by zero."""
+        assert utils.calmar_ratio(0.20, 0.0) == 0.0
+
+    def test_omega_above_one_for_positive_skew(self):
+        """More/larger gains than losses gives Omega > 1."""
+        returns = np.array([0.05, 0.04, -0.01, 0.03, -0.02])
+        assert utils.omega_ratio(returns) > 1.0
+
+    def test_omega_infinite_when_no_losses(self):
+        """No losses relative to threshold -> Omega is infinite."""
+        returns = np.array([0.01, 0.02, 0.03])
+        assert utils.omega_ratio(returns) == float('inf')
+
+
+class TestMinCVaR:
+    """Tests for the Minimum-CVaR optimizer."""
+
+    def _sample_returns(self, n_days=300, seed=7):
+        np.random.seed(seed)
+        return pd.DataFrame({
+            'LOWRISK': np.random.normal(0.0004, 0.006, n_days),
+            'MIDRISK': np.random.normal(0.0006, 0.015, n_days),
+            'HIGHRISK': np.random.normal(0.0008, 0.030, n_days),
+        })
+
+    def test_min_cvar_weights_valid(self):
+        """Weights are non-negative and sum to 1."""
+        result = utils.optimize_portfolio_min_cvar(
+            self._sample_returns(), risk_free_rate=0.03, num_portfolios=50)
+        assert result is not None
+        w = result['opt_weights']
+        assert abs(w.sum() - 1.0) < 1e-6
+        assert (w >= -1e-9).all()
+        assert len(w) == 3
+
+    def test_min_cvar_reports_tail_risk(self):
+        """Result exposes a non-negative daily CVaR and the confidence level."""
+        result = utils.optimize_portfolio_min_cvar(
+            self._sample_returns(), risk_free_rate=0.03, num_portfolios=50)
+        assert result is not None
+        assert result['cvar'] >= 0.0
+        assert result['alpha'] == 0.95
+
+    def test_min_cvar_avoids_highest_tail_asset(self):
+        """Tail-risk minimization should under-weight the most volatile asset."""
+        result = utils.optimize_portfolio_min_cvar(
+            self._sample_returns(), risk_free_rate=0.03, num_portfolios=50)
+        assert result is not None
+        w = result['opt_weights']
+        # HIGHRISK is index 2; it should not be the dominant holding
+        assert w[2] <= w[0] + 1e-6
+
+    def test_min_cvar_empty_returns_none(self):
+        """Empty input returns None."""
+        assert utils.optimize_portfolio_min_cvar(pd.DataFrame(), 0.03) is None
+
+    def test_min_cvar_single_asset_returns_none(self):
+        """A single asset is insufficient for diversification; returns None."""
+        single = pd.DataFrame({'ONLY': np.random.normal(0.0005, 0.01, 100)})
+        assert utils.optimize_portfolio_min_cvar(single, 0.03) is None

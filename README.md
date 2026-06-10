@@ -9,7 +9,7 @@
 
 The **Financial Analysis Tool** is a professional-grade financial analysis tool designed for portfolio optimization, risk assessment, backtesting, and active rebalancing. Bridging the gap between academic theory and practical application, this engine allows users to:
 1.  **Forecast** future price action using stochastic simulations with comprehensive risk metrics.
-2.  **Optimize** asset allocation using four models: Classical Mean-Variance, **Robust Optimization**, **Black-Litterman**, and **Risk Parity**.
+2.  **Optimize** asset allocation using five models: Classical Mean-Variance, **Robust Optimization**, **Black-Litterman**, **Risk Parity**, and **Minimum CVaR** (tail-risk).
 3.  **Rebalance** portfolios to maintain target allocations with precision.
 4.  **Stress Test** portfolios against historical market crises.
 5.  **Backtest** portfolio strategies with benchmark comparison.
@@ -23,8 +23,8 @@ The **Financial Analysis Tool** is a professional-grade financial analysis tool 
 -   **Terminal Price Histogram**: Visualize the full distribution of simulated end-of-period prices with reference lines for current price, expected price, and VaR threshold.
 -   **Probability of Loss**: Quantify the likelihood of an investment finishing below its current price.
 
-### 2. Portfolio Optimization (4 Models)
-Go beyond standard Markowitz optimization with four distinct models:
+### 2. Portfolio Optimization (5 Models)
+Go beyond standard Markowitz optimization with five distinct models:
 
 | Model | Description |
 | :--- | :--- |
@@ -32,6 +32,7 @@ Go beyond standard Markowitz optimization with four distinct models:
 | **Robust (Ledoit-Wolf)** | Ledoit-Wolf shrinkage regularization + CVXPY convex optimization |
 | **Black-Litterman** | Blend your personal return views with market equilibrium returns |
 | **Risk Parity** | Equal risk contribution from each asset (Bridgewater-style) |
+| **Minimum CVaR** | Minimize tail risk (Expected Shortfall) via the Rockafellar-Uryasev convex program |
 
 -   **Efficient Frontier Curve**: True frontier computed via constrained optimization (CVXPY), overlaid on the scatter plot.
 -   **Allocation Pie Chart**: Interactive donut chart for optimal weight visualization.
@@ -51,10 +52,11 @@ Go beyond standard Markowitz optimization with four distinct models:
 -   **Customizable Strategy**: Pick tickers, weights, date range, and rebalancing frequency (none, monthly, quarterly, annually).
 -   **Benchmark Comparison**: Side-by-side cumulative returns vs SPY (or any benchmark).
 -   **Key Metrics**: Total Return, CAGR, Max Drawdown, Sharpe Ratio, Win Rate.
+-   **Downside Risk Metrics**: **Sortino Ratio**, **Calmar Ratio**, and annualized **Downside Deviation** — risk-adjusted measures that penalize only losses, not upside volatility.
 -   **Drawdown Chart**: Visualize underwater periods with filled area chart.
 
 ### 6. Risk Dashboard
--   **Rolling Metrics**: Rolling annualized volatility, Sharpe ratio, and beta (vs benchmark) with adjustable window size.
+-   **Rolling Metrics**: Rolling annualized volatility, Sharpe ratio, **Sortino ratio** (downside-only), and beta (vs benchmark) with adjustable window size.
 -   **CAPM Factor Decomposition**: Regression-based analysis yielding Alpha (annualized), Beta, R², Tracking Error, and Information Ratio.
 -   **Educational Explainers**: Built-in tooltips and expandable guides for each metric.
 
@@ -103,12 +105,12 @@ Go beyond standard Markowitz optimization with four distinct models:
 
 ### 1. Optimization Models
 
-| Feature | Classical | Robust (Ledoit-Wolf) | Black-Litterman | Risk Parity |
-| :--- | :--- | :--- | :--- | :--- |
-| **Covariance** | Sample | Ledoit-Wolf Shrinkage | Ledoit-Wolf Shrinkage | Ledoit-Wolf Shrinkage |
-| **Expected Returns** | Historical Mean | Historical Mean | Equilibrium + User Views | Historical Mean |
-| **Objective** | Max Sharpe | Min Variance | Max Utility (adjusted) | Equal Risk Contribution |
-| **Sensitivity** | High | Low | Low | Low |
+| Feature | Classical | Robust (Ledoit-Wolf) | Black-Litterman | Risk Parity | Minimum CVaR |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Risk Model** | Sample Covariance | Ledoit-Wolf Shrinkage | Ledoit-Wolf Shrinkage | Ledoit-Wolf Shrinkage | Historical Loss Scenarios |
+| **Expected Returns** | Historical Mean | Historical Mean | Equilibrium + User Views | Historical Mean | Historical Mean |
+| **Objective** | Max Sharpe | Min Variance | Max Utility (adjusted) | Equal Risk Contribution | Min Tail Risk (CVaR) |
+| **Sensitivity** | High | Low | Low | Low | Low |
 
 ### 2. Stochastic Forecasting Strategy
 The **Stock Price Forecaster** module employs **Geometric Brownian Motion (GBM)**, the standard continuous-time stochastic process for standard market modeling.
@@ -128,6 +130,20 @@ Combines market equilibrium with user views using the formula:
 Solves for weights where each asset contributes equally to total portfolio risk:
 -   **Objective**: Minimize $\sum_i (RC_i - \frac{1}{N})^2$ where $RC_i = \frac{w_i (\Sigma w)_i}{w^T \Sigma w}$
 -   Uses SLSQP optimization with long-only constraints
+
+### 4b. Minimum CVaR (Tail-Risk Optimization)
+Minimizes the **Conditional Value-at-Risk** (Expected Shortfall) of the portfolio using the **Rockafellar-Uryasev** linear formulation, solved as a convex program with CVXPY:
+-   **Objective**: Minimize $\zeta + \frac{1}{S(1-\alpha)} \sum_{s=1}^{S} u_s$
+-   **Constraints**: $u_s \ge -(R_s \cdot w) - \zeta,\; u_s \ge 0,\; \sum_i w_i = 1,\; w_i \ge 0$
+-   Here $R_s$ is the vector of asset returns in historical scenario $s$, $\zeta$ is the Value-at-Risk at confidence level $\alpha$ (default 0.95), and $S$ is the number of scenarios.
+-   **Why it matters**: Unlike variance, CVaR penalizes only the left tail and makes no Gaussian assumption, making it well suited to fat-tailed, crash-prone markets.
+
+### 4c. Downside Risk Metrics
+The Backtester and Risk Dashboard report downside-focused, risk-adjusted measures that penalize losses rather than total volatility:
+-   **Sortino Ratio**: $\frac{\text{annualized excess return}}{\text{downside deviation}}$ — a Sharpe variant using only below-target volatility.
+-   **Calmar Ratio**: $\frac{\text{CAGR}}{|\text{Max Drawdown}|}$ — return earned per unit of worst-case loss.
+-   **Downside Deviation**: annualized standard deviation of returns below the target (default 0).
+-   **Omega Ratio**: probability-weighted ratio of gains to losses about a threshold (captures all distribution moments).
 
 ### 5. Portfolio Rebalancing Logic
 -   **Total Equity Calculation**: Aggregates current cash + current market value of all holdings.
@@ -165,7 +181,7 @@ Solves for weights where each asset contributes equally to total portfolio risk:
 
 ## Testing
 
-The project includes **27 unit tests** covering:
+The project includes **42 unit tests** covering:
 -   Price data extraction (4 tests)
 -   Monte Carlo simulation metrics (1 test)
 -   Portfolio rebalancing (2 tests)
@@ -173,6 +189,8 @@ The project includes **27 unit tests** covering:
 -   Robust optimization (4 tests)
 -   Risk parity optimization (1 test)
 -   Black-Litterman optimization (1 test)
+-   Minimum CVaR optimization (5 tests)
+-   Downside risk metrics (10 tests)
 -   Factor decomposition (2 tests)
 -   Rolling risk metrics (2 tests)
 -   Edge cases (8 tests)

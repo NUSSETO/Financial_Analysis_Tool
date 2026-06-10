@@ -521,8 +521,8 @@ elif page == "⚖️ Portfolio Optimizer":
     st.sidebar.subheader("Model Methodology")
     model_choice = st.sidebar.radio("Optimization Model",
                                     ["Robust (Ledoit-Wolf)", "Classic (Sample Covariance)",
-                                     "Black-Litterman", "Risk Parity"],
-                                    help = "Robust: Ledoit-Wolf shrinkage (recommended).\nClassic: Standard Sample Covariance.\nBlack-Litterman: Blend your own views with market equilibrium.\nRisk Parity: Equal risk contribution from each asset.")
+                                     "Black-Litterman", "Risk Parity", "Minimum CVaR"],
+                                    help = "Robust: Ledoit-Wolf shrinkage (recommended).\nClassic: Standard Sample Covariance.\nBlack-Litterman: Blend your own views with market equilibrium.\nRisk Parity: Equal risk contribution from each asset.\nMinimum CVaR: Minimize tail risk (Expected Shortfall).")
 
 
 
@@ -638,7 +638,14 @@ elif page == "⚖️ Portfolio Optimizer":
                     model_label = "Risk Parity"
                     if opt_data is not None:
                         extra_data['risk_contributions'] = opt_data.get('risk_contributions')
-                
+
+                elif model_choice == "Minimum CVaR":
+                    opt_data = utils.optimize_portfolio_min_cvar(data.pct_change(), risk_free_rate, num_portfolios)
+                    model_label = "Minimum CVaR"
+                    if opt_data is not None:
+                        extra_data['cvar'] = opt_data.get('cvar')
+                        extra_data['alpha'] = opt_data.get('alpha')
+
                 if opt_data is None:
                     st.error("Optimization failed. Please check your data or try different parameters.")
                     st.stop()
@@ -785,6 +792,11 @@ elif page == "⚖️ Portfolio Optimizer":
                 - **Input**: **Ledoit-Wolf Covariance Matrix**. This "shrinks" the noisy sample covariance towards a structured target (constant correlation), reducing estimation error.
                 - **Solver**: Uses **CVXPY**, a professional-grade convex optimization library, ensuring mathematically precise global minima (unlike random search).
                 - **Why it matters**: In practice, sample covariance matrices are noisy. Robust methods prevent the optimizer from "chasing noise," resulting in more stable and diversified portfolios that perform better out-of-sample.
+
+                ### 3. Minimum CVaR (Tail-Risk Optimization)
+                - **Objective**: Minimize the **Conditional Value-at-Risk (CVaR / Expected Shortfall)** — the average loss on the worst tail of days (default: worst 5%).
+                - **Method**: The **Rockafellar-Uryasev** linear formulation, solved as a convex program with **CVXPY** using historical daily returns directly as loss scenarios.
+                - **Why it matters**: Variance penalizes upside and downside equally and assumes symmetric, Gaussian-like returns. CVaR targets *only* the left tail and makes no distributional assumption, so it is better suited to fat-tailed, crash-prone markets.
                 """)
 
         # --- Correlation Analysis & Warning System ---
@@ -846,10 +858,22 @@ elif page == "⚖️ Portfolio Optimizer":
         optimal_vol_pct = opt_std * 100
         
         # Display key metrics
-        col_met1, col_met2, col_met3 = st.columns(3)
-        col_met1.metric("📈 Expected Return", f"{optimal_return_pct:.2f}%")
-        col_met2.metric("📊 Volatility", f"{optimal_vol_pct:.2f}%")
-        col_met3.metric("⭐ Sharpe Ratio", f"{optimal_sharpe:.2f}")
+        extra_store = data_store.get('extra', {})
+        cvar_value = extra_store.get('cvar')
+        if cvar_value is not None:
+            alpha_level = extra_store.get('alpha', 0.95)
+            col_met1, col_met2, col_met3, col_met4 = st.columns(4)
+            col_met1.metric("📈 Expected Return", f"{optimal_return_pct:.2f}%")
+            col_met2.metric("📊 Volatility", f"{optimal_vol_pct:.2f}%")
+            col_met3.metric("⭐ Sharpe Ratio", f"{optimal_sharpe:.2f}")
+            col_met4.metric(f"🛡️ Daily CVaR ({int(alpha_level*100)}%)", f"{cvar_value*100:.2f}%",
+                            help="Expected loss on the worst tail of days (Expected Shortfall). "
+                                 "This model minimizes exactly this tail risk.")
+        else:
+            col_met1, col_met2, col_met3 = st.columns(3)
+            col_met1.metric("📈 Expected Return", f"{optimal_return_pct:.2f}%")
+            col_met2.metric("📊 Volatility", f"{optimal_vol_pct:.2f}%")
+            col_met3.metric("⭐ Sharpe Ratio", f"{optimal_sharpe:.2f}")
                     
         allocation_df = pd.DataFrame({"Ticker": cols, "Weight": opt_weights})
         allocation_df = allocation_df.sort_values(by = "Weight", ascending = False)
@@ -1279,6 +1303,17 @@ elif page == "📊 Backtester":
         m4.metric("⭐ Sharpe Ratio", f"{bt['sharpe']:.2f}")
         m5.metric("🎯 Win Rate", f"{bt['win_rate']*100:.1f}%")
 
+        # Downside-focused risk-adjusted metrics
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("🛡️ Sortino Ratio", f"{bt.get('sortino', 0.0):.2f}",
+                  help="Like Sharpe, but only penalizes downside volatility. Higher is better.")
+        d2.metric("🏔️ Calmar Ratio", f"{bt.get('calmar', 0.0):.2f}",
+                  help="CAGR divided by the absolute max drawdown. Return earned per unit of worst-case loss.")
+        d3.metric("📉 Downside Dev.", f"{bt.get('downside_deviation', 0.0)*100:.1f}%",
+                  help="Annualized standard deviation of negative returns only.")
+        d4.metric("📊 Volatility", f"{bt.get('volatility', 0.0)*100:.1f}%",
+                  help="Annualized standard deviation of all returns.")
+
         if 'benchmark_return' in bt:
             st.info(f"📊 **Benchmark ({bt['benchmark_name']}) Total Return:** {bt['benchmark_return']*100:.1f}%")
 
@@ -1412,6 +1447,24 @@ elif page == "📉 Risk Dashboard":
             template='plotly_white', height=350
         )
         st.plotly_chart(fig_sharpe, use_container_width=True)
+
+        # Rolling Sortino
+        if 'rolling_sortino' in metrics and not metrics['rolling_sortino'].empty:
+            fig_sortino = go.Figure()
+            fig_sortino.add_trace(go.Scatter(
+                x=metrics['rolling_sortino'].index, y=metrics['rolling_sortino'].values,
+                mode='lines', name='Rolling Sortino',
+                line=dict(color='#FFA15A', width=2)
+            ))
+            fig_sortino.add_hline(y=0, line_dash='dash', line_color='gray')
+            fig_sortino.add_hline(y=1.0, line_dash='dot', line_color='green',
+                                  annotation_text='Good (1.0)')
+            fig_sortino.update_layout(
+                title='Rolling Annualized Sortino Ratio (downside-only risk)',
+                xaxis_title='Date', yaxis_title='Sortino Ratio',
+                template='plotly_white', height=350
+            )
+            st.plotly_chart(fig_sortino, use_container_width=True)
 
         # Rolling Beta
         if 'rolling_beta' in metrics:

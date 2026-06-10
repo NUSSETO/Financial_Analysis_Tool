@@ -5,8 +5,16 @@ import pandas as pd
 import sys
 from unittest.mock import MagicMock
 
-# Mock streamlit and yfinance as they are not needed for this logic
-sys.modules['streamlit'] = MagicMock()
+# Mock streamlit and yfinance as they are not needed for this logic.
+# cache_data must be a pass-through decorator so that functions decorated with
+# @st.cache_data(ttl=...) keep their real implementation (not become MagicMocks).
+mock_st = MagicMock()
+
+def mock_cache(ttl=None, **kwargs):
+    return lambda func: func
+
+mock_st.cache_data = mock_cache
+sys.modules['streamlit'] = mock_st
 sys.modules['yfinance'] = MagicMock()
 
 import utils

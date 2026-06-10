@@ -449,6 +449,7 @@ BL_TAU_DEFAULT = 0.05
 # Feature: Stress Testing
 # ==========================================
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def run_stress_test(tickers, weights, crises=None):
     """
     Simulates how a portfolio would have performed during historical market crises.
@@ -571,7 +572,7 @@ def optimize_portfolio_black_litterman(returns, views_dict, risk_free_rate,
     Black-Litterman portfolio optimization.
     
     Blends market equilibrium returns with user-specified views to produce
-    adjusted expected returns, then optimizes for max Sharpe.
+    adjusted expected returns, then maximizes a mean-variance (quadratic) utility.
     
     Args:
         returns (pd.DataFrame): Daily returns of assets.
@@ -626,19 +627,16 @@ def optimize_portfolio_black_litterman(returns, views_dict, risk_free_rate,
         M = np.linalg.inv(tau_Sigma_inv + P.T @ Omega_inv @ P)
         adjusted_returns = M @ (tau_Sigma_inv @ pi + P.T @ Omega_inv @ Q)
     
-    # 5. Optimize: max Sharpe using adjusted returns
+    # 5. Optimize: maximize mean-variance (quadratic) utility using adjusted returns
     w = cp.Variable(n_assets)
     ret = adjusted_returns @ w
     risk = cp.quad_form(w, Sigma)
-    
-    # Maximize Sharpe ≈ maximize return for given risk (parametric approach)
-    # We'll minimize risk subject to return >= target iteratively, 
-    # or simply maximize (ret - rf) / sqrt(risk) via a trick:
-    # Fix the excess return to 1 and minimize risk (homogeneous formulation)
+
+    # Long-only, fully-invested constraints
     constraints = [cp.sum(w) == 1, w >= 0]
-    
-    # Simple approach: maximize return - lambda * risk
-    # Use a moderately aggressive lambda
+
+    # Quadratic utility: maximize expected return penalized by risk aversion delta.
+    # This is the standard Black-Litterman objective, not a max-Sharpe objective.
     objective = cp.Maximize(ret - delta * risk)
     prob = cp.Problem(objective, constraints)
     
@@ -767,9 +765,217 @@ def optimize_portfolio_risk_parity(returns, num_portfolios=5000):
 
 
 # ==========================================
+# Feature: Minimum-CVaR Optimization
+# ==========================================
+
+def optimize_portfolio_min_cvar(returns, risk_free_rate, num_portfolios=5000, alpha=0.95):
+    """
+    Minimum Conditional Value-at-Risk (CVaR) portfolio optimization.
+
+    Minimizes the tail risk (Expected Shortfall) of the portfolio using the
+    Rockafellar-Uryasev linear formulation, solved as a convex program with CVXPY.
+    Historical daily returns are used directly as loss scenarios, so no Gaussian
+    assumption is imposed on the tail.
+
+    Rockafellar-Uryasev formulation:
+        minimize    zeta + 1 / (S * (1 - alpha)) * sum(u_s)
+        subject to  u_s >= loss_s - zeta,  u_s >= 0
+                    sum(w) = 1,  w >= 0
+    where loss_s = -(R_s . w) is the portfolio loss in scenario s and zeta is the
+    Value-at-Risk at confidence level alpha.
+
+    Args:
+        returns (pd.DataFrame): Daily returns of the assets.
+        risk_free_rate (float): The risk-free rate (decimal), used for the scatter plot.
+        num_portfolios (int): Number of random portfolios to generate for visualization.
+        alpha (float): CVaR confidence level (default 0.95 -> 5% worst tail).
+
+    Returns:
+        dict: Optimization results containing weights, metrics, and simulation data,
+              plus 'cvar' (expected daily shortfall of the optimal portfolio) and 'alpha'.
+    """
+    if returns is None or returns.empty:
+        return None
+
+    clean_returns = returns.dropna()
+    if clean_returns.shape[0] < 2 or clean_returns.shape[1] < 2:
+        return None
+
+    R = clean_returns.values  # (S scenarios, n assets) of daily returns
+    n_scenarios, n_assets = R.shape
+
+    # Annualized mean returns and Ledoit-Wolf covariance (for plotting consistency)
+    mu = clean_returns.mean().values * 252
+    lw = LedoitWolf()
+    lw.fit(clean_returns)
+    Sigma = lw.covariance_ * 252
+
+    # Convex program (Rockafellar-Uryasev)
+    w = cp.Variable(n_assets)
+    zeta = cp.Variable()
+    u = cp.Variable(n_scenarios, nonneg=True)
+
+    portfolio_losses = -R @ w
+    constraints = [
+        u >= portfolio_losses - zeta,
+        cp.sum(w) == 1,
+        w >= 0,
+    ]
+    cvar_expr = zeta + (1.0 / (n_scenarios * (1.0 - alpha))) * cp.sum(u)
+    prob = cp.Problem(cp.Minimize(cvar_expr), constraints)
+
+    try:
+        prob.solve()
+    except cp.SolverError:
+        return None
+
+    if w.value is None:
+        return None
+
+    # Clean and renormalize weights
+    opt_weights = np.asarray(w.value).flatten()
+    opt_weights[opt_weights < 1e-5] = 0
+    if opt_weights.sum() <= 0:
+        return None
+    opt_weights /= opt_weights.sum()
+
+    opt_ret = float(np.dot(opt_weights, mu))
+    opt_vol = float(np.sqrt(np.dot(opt_weights.T, np.dot(Sigma, opt_weights))))
+
+    # Realized daily CVaR (expected shortfall) of the optimal portfolio
+    port_daily = R @ opt_weights
+    var_threshold = np.percentile(port_daily, (1.0 - alpha) * 100)
+    tail = port_daily[port_daily <= var_threshold]
+    cvar_daily = float(-np.mean(tail)) if tail.size > 0 else float(-var_threshold)
+
+    # Random portfolios for visualization (Ledoit-Wolf Sigma for consistency)
+    weights_sim = np.random.random((num_portfolios, n_assets))
+    weights_sim /= np.sum(weights_sim, axis=1)[:, np.newaxis]
+
+    sim_returns = np.dot(weights_sim, mu)
+    sim_variances = np.einsum('ij,jk,ik->i', weights_sim, Sigma, weights_sim)
+    sim_stds = np.sqrt(sim_variances)
+
+    sim_stds_safe = np.where(sim_stds > MIN_VOLATILITY_FOR_SHARPE, sim_stds, MIN_VOLATILITY_FOR_SHARPE)
+    sim_sharpes = (sim_returns - risk_free_rate) / sim_stds_safe
+
+    results = np.vstack([sim_returns, sim_stds, sim_sharpes])
+
+    return {
+        'results': results,
+        'opt_weights': opt_weights,
+        'opt_ret': opt_ret,
+        'opt_std': opt_vol,
+        'returns': returns,
+        'tickers': clean_returns.columns,
+        'cvar': cvar_daily,
+        'alpha': alpha,
+    }
+
+
+# ==========================================
+# Feature: Downside Risk Metrics
+# ==========================================
+
+def downside_deviation(returns, target=0.0, periods_per_year=252):
+    """
+    Annualized downside deviation: standard deviation of returns that fall below a target.
+
+    Unlike standard deviation, only negative deviations (below the target) are penalized,
+    which better reflects an investor's perception of "bad" risk.
+
+    Args:
+        returns (array-like): Periodic (e.g. daily) returns.
+        target (float): Minimum acceptable periodic return (default 0.0).
+        periods_per_year (int): Annualization factor (default 252 trading days).
+
+    Returns:
+        float: Annualized downside deviation.
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[~np.isnan(r)]
+    if r.size == 0:
+        return 0.0
+    downside = np.minimum(r - target, 0.0)
+    dd = np.sqrt(np.mean(downside ** 2))
+    return float(dd * np.sqrt(periods_per_year))
+
+
+def sortino_ratio(returns, risk_free_rate=0.0, periods_per_year=252):
+    """
+    Annualized Sortino ratio: excess return per unit of downside deviation.
+
+    A variant of the Sharpe ratio that divides by downside deviation instead of total
+    volatility, rewarding strategies that limit losses rather than penalizing upside.
+
+    Args:
+        returns (array-like): Periodic (e.g. daily) returns.
+        risk_free_rate (float): Annual risk-free rate (decimal).
+        periods_per_year (int): Annualization factor (default 252).
+
+    Returns:
+        float: Annualized Sortino ratio (0.0 if downside deviation is ~0).
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[~np.isnan(r)]
+    if r.size == 0:
+        return 0.0
+    daily_rf = risk_free_rate / periods_per_year
+    ann_excess = float(np.mean(r - daily_rf) * periods_per_year)
+    dd = downside_deviation(r, target=daily_rf, periods_per_year=periods_per_year)
+    if dd < MIN_VOLATILITY_FOR_SHARPE:
+        return 0.0
+    return float(ann_excess / dd)
+
+
+def calmar_ratio(cagr, max_drawdown):
+    """
+    Calmar ratio: compound annual growth rate divided by the absolute maximum drawdown.
+
+    Measures return earned per unit of worst-case peak-to-trough loss.
+
+    Args:
+        cagr (float): Compound annual growth rate (decimal).
+        max_drawdown (float): Maximum drawdown (negative decimal, e.g. -0.25).
+
+    Returns:
+        float: Calmar ratio (0.0 if max drawdown is ~0).
+    """
+    if max_drawdown is None or abs(max_drawdown) < MIN_VOLATILITY_FOR_SHARPE:
+        return 0.0
+    return float(cagr / abs(max_drawdown))
+
+
+def omega_ratio(returns, threshold=0.0):
+    """
+    Omega ratio: probability-weighted ratio of gains to losses relative to a threshold.
+
+    Captures the full shape of the return distribution (all moments), not just mean and
+    variance. Omega > 1 means gains above the threshold outweigh losses below it.
+
+    Args:
+        returns (array-like): Periodic returns.
+        threshold (float): Periodic threshold return (default 0.0).
+
+    Returns:
+        float: Omega ratio (inf if there are gains but no losses).
+    """
+    r = np.asarray(returns, dtype=float)
+    r = r[~np.isnan(r)]
+    if r.size == 0:
+        return 0.0
+    gains = float(np.sum(np.maximum(r - threshold, 0.0)))
+    losses = float(np.sum(np.maximum(threshold - r, 0.0)))
+    if losses < MIN_VOLATILITY_FOR_SHARPE:
+        return float('inf') if gains > 0 else 0.0
+    return float(gains / losses)
+
+
+# ==========================================
 # Feature: Portfolio Backtesting
 # ==========================================
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def run_backtest(tickers, weights, start_date, end_date, rebal_freq='none', benchmark='SPY'):
     """
     Backtests a portfolio over a historical date range.
@@ -866,7 +1072,12 @@ def run_backtest(tickers, weights, start_date, end_date, rebal_freq='none', benc
     
     # Win rate
     win_rate = float(np.mean(weighted_returns > 0))
-    
+
+    # Downside risk metrics
+    downside_dev = downside_deviation(weighted_returns)
+    sortino = sortino_ratio(weighted_returns)
+    calmar = calmar_ratio(cagr, max_dd)
+
     # Build result
     result = {
         'portfolio_cum': port_cum,
@@ -875,6 +1086,9 @@ def run_backtest(tickers, weights, start_date, end_date, rebal_freq='none', benc
         'cagr': cagr,
         'volatility': ann_vol,
         'sharpe': sharpe,
+        'sortino': sortino,
+        'calmar': calmar,
+        'downside_deviation': downside_dev,
         'max_drawdown': max_dd,
         'win_rate': win_rate,
         'drawdown_series': drawdown_series
@@ -896,6 +1110,7 @@ def run_backtest(tickers, weights, start_date, end_date, rebal_freq='none', benc
 # Feature: Rolling Risk Metrics
 # ==========================================
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS)
 def compute_rolling_metrics(price_data, window=60, benchmark_ticker='SPY'):
     """
     Computes rolling risk metrics for a portfolio or single asset.
@@ -925,10 +1140,16 @@ def compute_rolling_metrics(price_data, window=60, benchmark_ticker='SPY'):
     rolling_mean = port_returns.rolling(window=window).mean() * 252
     rolling_sharpe = rolling_mean / rolling_vol
     rolling_sharpe = rolling_sharpe.replace([np.inf, -np.inf], np.nan)
-    
+
+    # Rolling Sortino (annualized, rf=0): rolling mean / rolling downside deviation
+    downside = port_returns.where(port_returns < 0, 0.0)
+    rolling_downside_dev = np.sqrt((downside ** 2).rolling(window=window).mean()) * np.sqrt(252)
+    rolling_sortino = (rolling_mean / rolling_downside_dev).replace([np.inf, -np.inf], np.nan)
+
     result = {
         'rolling_vol': rolling_vol.dropna(),
         'rolling_sharpe': rolling_sharpe.dropna(),
+        'rolling_sortino': rolling_sortino.dropna(),
         'dates': rolling_vol.dropna().index
     }
     
